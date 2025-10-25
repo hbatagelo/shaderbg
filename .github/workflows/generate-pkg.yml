@@ -11,7 +11,7 @@ on:
 jobs:
   arch:
     name: Arch Linux
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     container:
       image: archlinux:latest
 

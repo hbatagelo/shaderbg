@@ -11,7 +11,7 @@ on:
 jobs:
   release:
     name: Create GitHub Release
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: write
       actions: read

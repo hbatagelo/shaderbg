@@ -12,7 +12,7 @@ on:
 jobs:
   test:
     name: Run unit tests
-    runs-on: ubuntu-25.10
+    runs-on: self-hosted
 
     steps:
       - name: Clean workspace

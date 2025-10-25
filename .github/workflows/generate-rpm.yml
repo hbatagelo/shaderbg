@@ -11,7 +11,7 @@ jobs:
     name: Fedora
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     container:
       image: fedora:42
 
