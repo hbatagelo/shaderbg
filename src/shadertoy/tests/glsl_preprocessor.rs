@@ -1307,11 +1307,8 @@ int active2;
 
         for source in sources {
             let result = preprocess(source);
-            match result {
-                Ok(output) => {
-                    assert_eq!(output.trim(), "");
-                }
-                Err(_) => {}
+            if let Ok(output) = result {
+                assert_eq!(output.trim(), "");
             }
         }
     }
