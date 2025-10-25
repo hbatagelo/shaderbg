@@ -1,0 +1,76 @@
+id = "w3GGRy"
+name = "Another distorted box"
+username = "mrange"
+description = """
+CC0: Another distorted box
+A quick hack
+"""
+resolution_scale = 1.0
+time_scale = 0.2
+time_offset = "5s"
+interval_between_frames = "0s"
+screen_bounds_policy = "all_monitors"
+monitor_selection = ["*"]
+layout_mode = "stretch"
+filter_mode = "linear"
+crossfade_overlap_ratio = 0.0
+
+[image]
+shader = """
+// CC0: Another distorted box
+//  A quick hack
+
+// Twigl: https://twigl.app?ol=true&ss=-OV7ltExpPQVHkE1DHJO
+void mainImage(out vec4 o,vec2 C){
+  float
+      i         // Ray marching step counter
+    , j         // Inner loop counter
+    , d         // Distance to surface (for ray marching)
+    , z         // Current distance along ray
+    , t=iTime   // Time variable for animation
+    ;
+  vec4
+      p         // Current 3D position + extra component for fractal
+    , O         // Accumulated color/brightness
+    ;
+
+  // Main ray marching loop
+  for(
+      vec3 R    // Rotation vector for fractal transformation
+    ; ++i<77.   // March forward until max steps
+    ; z+=.2*d   // Step forward by distance * step size
+    ) {
+
+    // Calculate ray direction from screen coordinate to 3D world
+    // C+C is 2*C, converting screen coords to [-1,1] range
+    // Subtract resolution to center the coordinate system
+    o=p=vec4(z*normalize(vec3(C+C,0)-iResolution.xyy),cos(t*.1));
+
+    // Move camera forward in Z direction
+    p.z+=2.;
+
+    // Distortion loop
+    for(
+         j=0.         // Reset iteration counter
+      ;  ++j<5.
+      ;  p.xyz=R*dot(R,p.xyz)-cross(R,p.xyz)  // Apply rotation-based transformation
+      )
+        p=p.yzwx                                      // Swizzle coordinates (rotate components)
+      , R=normalize(sin(t*.03*vec3(7,8,9)+j+.5*p.w))  // Update rotation vector
+      ;
+
+    // Calculate color based on distance from original position
+    // vec4(1,3,4,2) creates color offset for RGB channels
+    o=1.+sin(length(p-o)+vec4(1,3,4,2)-o.y);
+
+    // Distance function: how far we are from the surface
+    // p*=p*p*p makes p = p^4 (creates sharp edges)
+    // dot(p,p) gets squared length, pow(.125) takes 8th root
+    // This creates a "rounded box" distance field
+    O+=o.w/(d=abs(pow(dot(p*=p*p*p,p),.125)-1.)+2e-3)*o;
+  }
+
+  // Final color output - tanh provides smooth falloff
+  // 9e3 controls overall brightness
+  o=tanh(O/9e3);
+}"""

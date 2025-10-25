@@ -1,0 +1,90 @@
+name: Generate PKG package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  arch:
+    name: Arch Linux
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+
+    steps:
+      - name: Update system and install dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm \
+            base-devel \
+            rust \
+            gtk4-layer-shell \
+            pandoc \
+            groff \
+            git
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Create build user
+        run: |
+          useradd -m builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+      - name: Prepare source for makepkg
+        run: |
+          mkdir -p /tmp/makepkg/src
+          cp -r . /tmp/makepkg/src/
+          cp PKGBUILD /tmp/makepkg/
+          chown -R builder:builder /tmp/makepkg
+
+      - name: Build package
+        run: |
+          su - builder -c "
+            cd /tmp/makepkg
+            makepkg -sf --noconfirm
+          "
+
+      - name: Copy package back
+        run: |
+          cp /tmp/makepkg/*.pkg.tar.zst .
+
+      - name: Find package
+        id: find_pkg
+        run: |
+          PKG_FILES=$(ls *.pkg.tar.zst | tr '\n' ' ')
+          echo "packages=$PKG_FILES" >> $GITHUB_OUTPUT
+          echo "Found packages:"
+          ls -lh *.pkg.tar.zst
+
+      - name: Generate and sign checksums
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          sha256sum *.pkg.tar.zst > SHA256SUMS
+
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            export GNUPGHOME=$(mktemp -d)
+            chmod 700 "$GNUPGHOME"
+
+            echo "pinentry-mode loopback" > "$GNUPGHOME/gpg.conf"
+            echo "no-tty" >> "$GNUPGHOME/gpg.conf"
+            echo "$GPG_PRIVATE_KEY" | gpg --batch --yes --import
+
+            echo "$GPG_PASSPHRASE" | gpg --batch --yes \
+              --pinentry-mode loopback --passphrase-fd 0 \
+              --clearsign SHA256SUMS
+
+            rm -rf "$GNUPGHOME"
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: shaderbg-x86_64-arch
+          path: |
+            *.pkg.tar.zst
+            SHA256SUMS*

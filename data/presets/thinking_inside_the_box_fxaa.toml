@@ -1,0 +1,647 @@
+id = "lfdBWs"
+name = "FXAA: Thinking Inside the Box"
+username = "mrange"
+description = """
+Forked from https://www.shadertoy.com/view/lccBWl
+
+Thinking Inside the Box
+A bit of tinkering with inner reflections
+now with FXAA for those with "lores" screens
+"""
+resolution_scale = 1.0
+time_scale = 0.5
+time_offset = "0s"
+interval_between_frames = "0s"
+screen_bounds_policy = "all_monitors"
+monitor_selection = ["*"]
+layout_mode = "stretch"
+filter_mode = "linear"
+crossfade_overlap_ratio = 0.0
+
+[buffer_a]
+shader = """
+// CC0: Thinking Inside the Box
+//  A bit of tinkering with inner reflections
+
+// Controls how many lines the inner cube have
+//  On my 4K screen I like 3.0 but the aliasing is a
+//  bit intense in 1920x1080
+#define ZOOM        2.5
+// Like 0.0125 on 4K screens
+#define LINEWIDTH   0.02
+
+// Can't decide which I like the most
+// #define BOXVARIANT
+
+#define TIME        iTime
+#define RESOLUTION  iResolution
+#define ROT(a)      mat2(cos(a), sin(a), -sin(a), cos(a))
+
+#define FWD(x)      exp2((x)*ZOOM)
+#define REV(x)      (log2(x)/ZOOM)
+
+
+const float pi      = acos(-1.);
+const float tau     = 2.*pi;
+const float upSat   = 1.2;
+const float phi     = (sqrt(5.)+1.)/2.;
+
+// "Fancy" animated matrix.
+//  Got it off chat AI, I assume it is "borrowed" from somewhere
+//  The results looked ok though
+mat3 animatedRotationMatrix(float time) {
+  // Create a dynamic, multi-axis rotation
+  float angle1 = time * 0.5;       // Slower primary rotation
+  float angle2 = time * 0.707;     // Slightly faster secondary rotation
+  float angle3 = time * 0.33;      // Slower tertiary rotation
+
+  // Trigonometric functions create interesting, non-linear rotation
+  float c1 = cos(angle1);
+  float s1 = sin(angle1);
+  float c2 = cos(angle2);
+  float s2 = sin(angle2);
+  float c3 = cos(angle3);
+  float s3 = sin(angle3);
+
+  // Complex rotation matrix with multiple axis interactions
+  return mat3(
+      c1 * c2,  c1 * s2 * s3 - c3 * s1,  s1 * s3 + c1 * c3 * s2,
+      c2 * s1,  c1 * c3 + s1 * s2 * s3,  c3 * s1 * s2 - c1 * s3,
+      -s2,      c2 * s3,                 c2 * c3
+  );
+}
+
+// License: Unknown, author: XorDev, found: https://x.com/XorDev/status/1808902860677001297
+vec3 hsv2rgb_approx(vec3 hsv) {
+  return (cos(hsv.x*tau+vec3(0.,4.,2.))*hsv.y+2.-hsv.y)*hsv.z/2.;
+}
+
+#define  HSV2RGB_APPROX(hsv) ((cos(hsv.x*tau+vec3(0.,4.,2.))*upSat*hsv.y+2.-upSat*hsv.y)*hsv.z/2.)
+
+
+const float beerHue = 0.75;
+const vec3 reflCol      = HSV2RGB_APPROX(vec3(beerHue, 0.33, 0.33));
+const vec3 groundCol    = HSV2RGB_APPROX(vec3(0.7, 0.2, 1.5));
+const vec3 glowCol      = HSV2RGB_APPROX(vec3(0.06, 0.9, 3E-2));
+const vec3 beerFactor   = -HSV2RGB_APPROX(vec3(beerHue+0.5, 0.75, 1.0));
+const vec3 skyCol       = HSV2RGB_APPROX(vec3(0.57, 0.70, 0.25));
+const vec3 outerGlowCol = HSV2RGB_APPROX(vec3(0.66,0.5, 4E-3));
+
+const int   maxRayMarchesInsides   = 50;
+const float toleranceInsides       = .001;
+const float normalEpisolonInsides  = 0.001;
+const int   maxBouncesInsides      = 5;
+vec3 g_glowDistanceInsides;
+
+mat3 g_rot;
+
+
+//#define BACKSTEP_SHAPES
+const int   maxRayMarchesShapes = 70;
+const float toleranceShapes     = .001;
+const float maxRayLengthShapes  = 20.;
+const float normalEpisolonShapes= 0.01;
+vec2 g_glowDistanceShapes;
+
+const vec3 rayOrigin    = normalize(vec3(0.0, 2., -5.))*10.;
+const vec3 sunDir       = normalize(vec3(1.0));
+const vec3  boxDim      = vec3(1.,phi,sqrt(phi))*1.9;
+const float boxEdge     = 0.005;
+
+const float bottom      = -boxDim.y-0.033;
+
+
+// License: Unknown, author: Matt Taylor (https://github.com/64), found: https://64.github.io/tonemapping/
+vec3 aces_approx(vec3 v) {
+  v = max(v, 0.0);
+  v *= 0.6;
+  float a = 2.51;
+  float b = 0.03;
+  float c = 2.43;
+  float d = 0.59;
+  float e = 0.14;
+  return clamp((v*(a*v+b))/(v*(c*v+d)+e), 0.0, 1.0);
+}
+
+float rayPlane(vec3 ro, vec3 rd, vec4 p) {
+  return -(dot(ro,p.xyz)+p.w)/dot(rd,p.xyz);
+}
+
+// License: MIT, author: Inigo Quilez, found: https://iquilezles.org/articles/distfunctions/
+float box(vec2 p, vec2 b) {
+  vec2 d = abs(p)-b;
+  return length(max(d,0.0)) + min(max(d.x,d.y),0.0);
+}
+
+// License: MIT, author: Inigo Quilez, found: https://iquilezles.org/articles/distfunctions/
+float box( vec3 p, vec3 b ) {
+  vec3 q = abs(p) - b;
+  return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0);
+}
+
+float ssphere4( vec3 p, float r ) {
+  p *= p;
+  return pow(dot(p, p), 0.25)-r;
+}
+
+// License: MIT, author: Inigo Quilez, found: https://iquilezles.org/articles/distfunctions/
+float boxFrame( vec3 p, vec3 b, float e ) {
+       p = abs(p  )-b;
+  vec3 q = abs(p+e)-e;
+  return min(min(
+      length(max(vec3(p.x,q.y,q.z),0.0))+min(max(p.x,max(q.y,q.z)),0.0),
+      length(max(vec3(q.x,p.y,q.z),0.0))+min(max(q.x,max(p.y,q.z)),0.0)),
+      length(max(vec3(q.x,q.y,p.z),0.0))+min(max(q.x,max(q.y,p.z)),0.0));
+}
+
+vec3 renderWorld(vec3 ro, vec3 rd) {
+  vec3 col = vec3(0.0);
+
+  // Compute distance to floor
+  float bt   = -(ro.y-bottom)/(rd.y);
+
+  // Compute sky col
+  col = hsv2rgb_approx(vec3(0.6, clamp(0.3+0.9*rd.y,0.0, 1.0), 2.*clamp(2.0-2.*rd.y*rd.y, 0.0, 2.)));
+  if (bt > 0.) {
+    vec3 bp = ro +rd*bt;
+    vec2 bpp = bp.xz;
+    // Creates a 1x1 coordinate system
+    vec2 npp = round(bpp);
+    vec2 cpp = bpp - npp;
+    vec2 app = abs(cpp);
+    // The grid distance field
+    // Detects if we are looking right at the grid or off an angle
+    float gfre = 1.+rd.y;
+    gfre *= gfre;
+    gfre *= gfre;
+    // If we are looking of an angle we let the line with goto 0, reduces aliasing
+    float gd = min(app.x, app.y)-mix(0.01,0.0, gfre);
+
+    // The ground color
+    // Fades out the ground, also helps reducing aliasing effects
+    float bfade = mix(1.,0.2,  exp(-0.3*max(bt-15., 0.)));
+    float aa = mix(0.0, 0.08, bfade);
+    vec3 bcol = mix(groundCol, groundCol*bfade, smoothstep(aa,-aa, gd));
+    // Fade in the sky
+    col = mix(col, bcol, exp(-0.008*bt));
+  }
+
+
+
+  return col;
+}
+
+
+vec3 renderInnerWorld(vec3 ro, vec3 rd) {
+  vec3 col = vec3(0.0);
+
+
+  float tp1  = rayPlane(ro, rd, vec4(vec3(0.0, -1.0, 0.0), 6.0));
+
+  if (tp1 > 0.0) {
+    vec3 pos  = ro + tp1*rd;
+    vec2 pp = pos.xz;
+    float db = box(pp, vec2(5.0, 9.0))-3.0;
+
+    col += vec3(4.0)*skyCol*rd.y*rd.y*smoothstep(0.25, 0.0, db);
+    col += vec3(0.8)*skyCol*exp(-0.5*max(db, 0.0));
+    col += 0.25*sqrt(skyCol)*max(-db, 0.0);
+  }
+
+  return clamp(col, 0.0, 10.0);
+}
+
+float ssphere8(vec3 p, float r) {
+  p *= p;
+  p *= p;
+  return pow(dot(p,p),0.125)-r;
+}
+
+#ifdef BOXVARIANT
+#define BACKSTEP_INSIDES
+vec2 dfTheCube(vec3 p) {
+  float d0 = ssphere8(p, (1.0));
+  float d3 = ssphere4(p, 0.99);
+
+  vec3 p2 = p;
+  p2 = abs(p2);
+  p2 -= 1.0;
+
+  float fp2 = FWD(length(p2));
+
+  float n = floor(fp2);
+
+  float x0 = REV(n);
+  float x1 = REV(n+1.0);
+
+  float m = (x0+x1)*0.5;
+  float w = x1-x0;
+
+  float d2 = abs(length(p2)-m)-(w*0.5)+LINEWIDTH;
+
+  d0 = max(d0, d2);
+
+  float d = d0;
+  d = min(d, d3);
+
+  float gd = 1E3;
+  gd = min(gd, d3);
+
+  return vec2(d, gd);
+
+}
+#else
+vec2 dfTheCube(vec3 p) {
+  float d0 = box(p, vec3(1.0));
+  float d1 = boxFrame(p, vec3(1.01), 0.0)-0.005;
+  float d3 = ssphere4(p, 0.99);
+
+  vec3 p2 = p;
+  p2 = abs(p2);
+  p2 -= 1.0;
+
+  float fp2 = FWD(length(p2));
+
+  float n = floor(fp2);
+
+  float x0 = REV(n);
+  float x1 = REV(n+1.0);
+
+  float m = (x0+x1)*0.5;
+  float w = x1-x0;
+
+  float d2 = abs(length(p2)-m)-(w*0.5)+LINEWIDTH;
+
+  d0 = max(d0, d2);
+
+  float d = d0;
+  d = min(d, d1);
+  d = min(d, d3);
+
+  float gd = d1;
+  gd = min(gd, d3);
+
+  return vec2(d, gd);
+
+}
+#endif
+
+// Distance fields for the objects inside the object
+float dfInsides(vec3 p) {
+  // The box, is negated because we are inside of it.
+  float dbox = -box(p, boxDim);
+  vec3 p0 = p;
+  p0 *= g_rot;
+  vec2 dtheCube = dfTheCube(p0);
+  // The glow frame
+  float dboxFrame = boxFrame(p, boxDim, 0.)-boxEdge;
+
+  float d = 1E3;
+  d = dbox;
+  d = min(d, dtheCube.x);
+
+  // Capture the glow distance
+  float gd = 1E3;
+  gd = min(gd, dtheCube.y);
+
+  g_glowDistanceInsides = min(g_glowDistanceInsides, vec3(gd, dtheCube.x, dboxFrame));
+
+  return d;
+}
+
+
+float rayMarchInsides(vec3 ro, vec3 rd, float tinit) {
+  float t = tinit;
+// This is something I learnt of IQ. This is to reduce artefacts
+//  that can happen if you look on a flat surface on a sharp angle
+//  This backsteps the point closes to the surface on a miss
+//  Sometimes improves things alot, sometimes it doesn't
+
+#if defined(BACKSTEP_INSIDES)
+  vec2 dti = vec2(1e10,0.0);
+#endif
+  int i;
+  for (i = 0; i < maxRayMarchesInsides; ++i) {
+    float d = dfInsides(ro + rd*t);
+#if defined(BACKSTEP_INSIDES)
+    if (d<dti.x) { dti=vec2(d,t); }
+#endif
+    if (d < toleranceInsides) {
+      break;
+    }
+    t += d;
+  }
+#if defined(BACKSTEP_INSIDES)
+  if(i==maxRayMarchesInsides) { t=dti.y; };
+#endif
+  return t;
+}
+
+vec3 normalInsides(vec3 pos) {
+  // Classic way to compute normal using the distance field
+  const vec2 eps = vec2(normalEpisolonInsides, 0.0);
+  return normalize(vec3(
+      dfInsides(pos+eps.xyy)-dfInsides(pos-eps.xyy)
+    , dfInsides(pos+eps.yxy)-dfInsides(pos-eps.yxy)
+    , dfInsides(pos+eps.yyx)-dfInsides(pos-eps.yyx))
+    );
+}
+
+vec3 renderInsides(vec3 ro, vec3 rd, float db) {
+  // Aggregated colors. Each reflection adds to it
+  vec3 agg = vec3(0.0);
+  // Accumulated reflection factor
+  float ragg = 1.;
+  // Accumulated total distance
+  float tagg = 0.;
+
+  float dist = sin(length(ro)*6.);
+
+  g_rot = animatedRotationMatrix(sqrt(0.5)*0.5*TIME);
+  float blurIt = 0.;
+  for (int bounce = 0; bounce < maxBouncesInsides; ++bounce) {
+    if (ragg < 0.1) break;
+    g_glowDistanceInsides = vec3(1E3);
+    float it  = rayMarchInsides(ro, rd, db);
+    float glowDistanceInsides = g_glowDistanceInsides.x;
+    float innerBox = g_glowDistanceInsides.y;
+    float boxFrame = g_glowDistanceInsides.z;
+
+    tagg      += it;
+
+    vec3 ip     = ro+rd*it;
+    vec3 in_    = normalInsides(ip);
+    vec3 ir     = reflect(rd, in_);
+    // Fake fresnel effect
+    float ifre  = 1.+dot(in_,rd);
+    ifre *= ifre;
+    ifre = mix(0.8, 1., ifre)*0.8;
+
+    // Color is absorbed expotentially on the total distance travelled
+    vec3 beer = ragg*exp(0.2*beerFactor*tagg);
+
+    // Add current glow color to accumulated color
+    // Random tinkering with the distance travelled to make the lines
+    // blur out, no thinking used. Just tinkering
+    vec3 tcol = vec3(0.0);
+
+    tcol += glowCol*(1./max(glowDistanceInsides, 1E-3));
+    vec3 iwcol = renderInnerWorld(ip, ir);
+    if (innerBox < 10.*toleranceInsides) {
+      tcol += iwcol*ifre*0.66;
+      ifre *= 0.33;
+    }
+
+    ifre *= smoothstep(0.00, 0.03, boxFrame);
+    agg += tcol*beer;
+    // Compute next reflection factor using fresnel effect
+    ragg *= ifre;
+
+    if (glowDistanceInsides < 2.*toleranceInsides) {
+      // In this case we hit the glow which is non reflective
+      ragg = 0.;
+    }
+
+    // Next rayorigin is current position
+    ro        = ip;
+    // Next raydirection is the reflection vector
+    rd        = ir;
+    // How much should we step away from the surface
+    //  The closer we are to the glow we are closed to the corners
+    //  and should step less
+    db        = clamp(boxFrame, 0.05, 0.25);
+
+  }
+
+  return agg;
+}
+
+// Objects outside the objects
+float dfShapes(vec3 p) {
+  // The box
+  float dbox = box(p, boxDim);
+  // The box fame used for glow
+  float dboxFrame = boxFrame(p, boxDim, 0.)-boxEdge;
+  float d = 1E3;
+  d = dbox;
+  d = min(d,dboxFrame);
+
+  float gd = 1E3;
+  gd = dboxFrame;
+
+  // Capture the glow distance
+  g_glowDistanceShapes = min(g_glowDistanceShapes, vec2(gd, dboxFrame));
+  return d;
+}
+
+float rayMarchShapes(vec3 ro, vec3 rd, float tinit) {
+  float t = tinit;
+#if defined(BACKSTEP_SHAPES)
+  vec2 dti = vec2(1e10,0.0);
+#endif
+  int i;
+  for (i = 0; i < maxRayMarchesShapes; ++i) {
+    float d = dfShapes(ro + rd*t);
+#if defined(BACKSTEP_SHAPES)
+    if (d<dti.x) { dti=vec2(d,t); }
+#endif
+    if (d < toleranceShapes || t > maxRayLengthShapes) {
+      break;
+    }
+    t += d;
+  }
+#if defined(BACKSTEP_SHAPES)
+  if(i==maxRayMarchesShapes) { t=dti.y; };
+#endif
+  return t;
+}
+
+vec3 normalShapes(vec3 pos) {
+  const vec2 eps = vec2(normalEpisolonShapes, 0.0);
+  return normalize(vec3(
+      dfShapes(pos+eps.xyy)-dfShapes(pos-eps.xyy)
+    , dfShapes(pos+eps.yxy)-dfShapes(pos-eps.yxy)
+    , dfShapes(pos+eps.yyx)-dfShapes(pos-eps.yyx))
+    );
+}
+
+vec3 renderShapes(vec3 ro, vec3 rd) {
+  vec3 col = renderWorld(ro, rd);
+
+  // Distance to floor
+  float bt = -(ro.y-bottom)/(rd.y);
+  vec3 bp = ro+rd*bt;
+  // Used for fake shadow effect
+  float bd = dfShapes(bp);
+
+  g_glowDistanceShapes = vec2(1E3);
+  float st = rayMarchShapes(ro, rd, 0.);
+  float sglowDistance = g_glowDistanceShapes.x;
+  float sbox = g_glowDistanceShapes.y;
+
+
+  vec3 sp = ro+rd*st;
+  vec3 sn = normalShapes(sp);
+
+  float sfre = 1.+dot(rd,+sn);
+  sfre *= sfre;
+  float refr_index    = mix(0.8, -0.8, sfre);
+  sfre = mix(0.05, 1.0,sfre);
+
+  vec3 sr = reflect(rd,sn);
+  vec3 srr= refract(rd,sn, refr_index);
+  // Fake fresnel effect
+
+  // The reflection color
+  if (st < maxRayLengthShapes && (bt < 0.0 || st < bt)) {
+    // Hit the object
+    vec3 rwcol = renderWorld(sp, sr);
+    vec3 ricol = vec3(0.);
+    // If we hit the glow we don't compute the insides
+    if (sglowDistance > 2.*toleranceShapes) {
+      float stepIn = clamp(sbox, 0.05, 0.25);
+      ricol = renderInsides(sp, srr, stepIn)*(1.-sfre);
+    }
+    // In case of full reflection, can happen if refraction index > 1
+    if (srr == vec3(0.0)) {
+      col = rwcol*sqrt(sfre)*reflCol;
+    } else  {
+      col = mix(ricol*smoothstep(0., 0.25, sglowDistance), rwcol*reflCol, sfre);
+    }
+
+  } else if (bt > 0.0) {
+    // Hit the floor
+    // Fake shadow
+    col *= mix(1.0, 0.125, exp(-bd));
+  }
+
+  // Add the glow
+  col += outerGlowCol/max(sglowDistance, toleranceShapes);
+
+  return col;
+}
+
+vec3 effect(vec2 p, vec2 pp) {
+  vec3 ro = rayOrigin;
+  const vec3 la = vec3(0.0, bottom*0.5, 0.0);
+  const vec3 up = vec3(0.0, 1.0, 0.0);
+  ro.xz *= ROT(0.0707*TIME);
+
+  // Classic way to setup the ray direction
+  //  uses the ray origin and look at
+  //  Don't worry if you don't get it. Do what everyone else does and copy paste it
+  vec3 ww = normalize(la - ro);
+  vec3 uu = normalize(cross(up, ww ));
+  vec3 vv = (cross(ww,uu));
+
+  const float fov = 2.;
+  vec3 rd = normalize(-p.x*uu + p.y*vv + fov*ww);
+
+  vec3 col = vec3(0.0);
+
+  col = renderShapes(ro, rd);
+  col -= 0.03*vec3(2.0,3.0,1.0)*(length(p)+0.25);
+  col *= smoothstep(1.7, 0.8, length(pp));
+  // Aces approx converts color range from HDR ([0,inf]) to [0,1]
+  col = aces_approx(col);
+  // Fake RGB to sRGB conversion
+  col = sqrt(col);
+  return col;
+}
+
+void mainImage( out vec4 fragColor, in vec2 fragCoord ) {
+  vec2 q = fragCoord/RESOLUTION.xy;
+  vec2 p = -1. + 2. * q;
+  vec2 pp = p;
+  p.x *= RESOLUTION.x/RESOLUTION.y;
+  vec3 col = vec3(0.0);
+  col = effect(p, pp);
+
+  fragColor = vec4(col, 1.0);
+}
+"""
+
+[image]
+shader = """
+// CC0: FXAA: Thinking Inside the Box
+
+#define RESOLUTION  iResolution
+
+// License: Unknowon, author: XorDev, found: https://github.com/XorDev/GM_FXAA
+vec4 fxaa(sampler2D tex, vec2 uv, vec2 texelSz) {
+  // See this blog
+  // https://mini.gmshaders.com/p/gm-shaders-mini-fxaa
+
+  // Maximum texel span
+  const float span_max    = 8.0;
+  // These are more technnical and probably don't need changing:
+  // Minimum "dir" reciprocal
+  const float reduce_min  = (1.0/128.0);
+  // Luma multiplier for "dir" reciprocal
+  const float reduce_mul  = (1.0/32.0);
+
+  const vec3  luma        = vec3(0.299, 0.587, 0.114);
+
+  // Sample center and 4 corners
+  vec3 rgbCC = texture(tex, uv).rgb;
+  vec3 rgb00 = texture(tex, uv+vec2(-0.5,-0.5)*texelSz).rgb;
+  vec3 rgb10 = texture(tex, uv+vec2(+0.5,-0.5)*texelSz).rgb;
+  vec3 rgb01 = texture(tex, uv+vec2(-0.5,+0.5)*texelSz).rgb;
+  vec3 rgb11 = texture(tex, uv+vec2(+0.5,+0.5)*texelSz).rgb;
+
+  //Get luma from the 5 samples
+  float lumaCC = dot(rgbCC, luma);
+  float luma00 = dot(rgb00, luma);
+  float luma10 = dot(rgb10, luma);
+  float luma01 = dot(rgb01, luma);
+  float luma11 = dot(rgb11, luma);
+
+  // Compute gradient from luma values
+  vec2 dir = vec2((luma01 + luma11) - (luma00 + luma10), (luma00 + luma01) - (luma10 + luma11));
+
+  // Diminish dir length based on total luma
+  float dirReduce = max((luma00 + luma10 + luma01 + luma11) * reduce_mul, reduce_min);
+
+  // Divide dir by the distance to nearest edge plus dirReduce
+  float rcpDir = 1.0 / (min(abs(dir.x), abs(dir.y)) + dirReduce);
+
+  // Multiply by reciprocal and limit to pixel span
+  dir = clamp(dir * rcpDir, -span_max, span_max) * texelSz.xy;
+
+  // Average middle texels along dir line
+  vec4 A = 0.5 * (
+      texture(tex, uv - dir * (1.0/6.0))
+    + texture(tex, uv + dir * (1.0/6.0))
+    );
+
+  // Average with outer texels along dir line
+  vec4 B = A * 0.5 + 0.25 * (
+      texture(tex, uv - dir * (0.5))
+    + texture(tex, uv + dir * (0.5))
+    );
+
+
+  // Get lowest and highest luma values
+  float lumaMin = min(lumaCC, min(min(luma00, luma10), min(luma01, luma11)));
+  float lumaMax = max(lumaCC, max(max(luma00, luma10), max(luma01, luma11)));
+
+  // Get average luma
+  float lumaB = dot(B.rgb, luma);
+
+  //If the average is outside the luma range, using the middle average
+  return ((lumaB < lumaMin) || (lumaB > lumaMax)) ? A : B;
+}
+
+void mainImage( out vec4 fragColor, in vec2 fragCoord ) {
+  vec2 sz = 1.0/RESOLUTION.xy;
+  vec2 q = fragCoord*sz;
+  fragColor = fxaa(iChannel0, q, sqrt(2.0)*sz);
+
+}"""
+
+[image.input_0]
+type = "misc"
+name = "Buffer A"
+wrap = "clamp"
+filter = "linear"
+vflip = true

@@ -1,0 +1,139 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to create release for (e.g., v1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+
+    steps:
+      - name: Download Debian artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: generate-deb.yml
+          name: shaderbg-x86_64-deb
+          path: artifacts/deb
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ inputs.tag }}
+
+      - name: Download Fedora artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: generate-rpm.yml
+          name: shaderbg-x86_64-rpm
+          path: artifacts/rpm
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ inputs.tag }}
+
+      - name: Download Arch artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: generate-pkg.yml
+          name: shaderbg-x86_64-arch
+          path: artifacts/arch
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ inputs.tag }}
+
+      - name: List collected artifacts
+        run: |
+          echo "=== All downloaded files ==="
+          find artifacts -type f -ls
+          echo ""
+          echo "=== SHA256SUMS* files ==="
+          find artifacts -name "SHA256SUMS*" -type f
+
+      - name: Merge checksums and re-sign
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          # Create output directory
+          mkdir -p artifacts/release
+
+          echo "=== Extracting checksums from Debian ==="
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            export GNUPGHOME=$(mktemp -d)
+            chmod 700 "$GNUPGHOME"
+            echo "$GPG_PRIVATE_KEY" | gpg --batch --yes --import 2>/dev/null
+            gpg --batch --yes --decrypt artifacts/deb/SHA256SUMS.asc 2>/dev/null > artifacts/release/deb.sums
+            rm -rf "$GNUPGHOME"
+          else
+            sed -n '/^[0-9a-f]\{64\}  /p' artifacts/deb/SHA256SUMS.asc > artifacts/release/deb.sums
+          fi
+          cat artifacts/release/deb.sums
+
+          echo "=== Extracting checksums from Fedora ==="
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            export GNUPGHOME=$(mktemp -d)
+            chmod 700 "$GNUPGHOME"
+            echo "$GPG_PRIVATE_KEY" | gpg --batch --yes --import 2>/dev/null
+            gpg --batch --yes --decrypt artifacts/rpm/SHA256SUMS.asc 2>/dev/null > artifacts/release/rpm.sums
+            rm -rf "$GNUPGHOME"
+          else
+            sed -n '/^[0-9a-f]\{64\}  /p' artifacts/rpm/SHA256SUMS.asc > artifacts/release/rpm.sums
+          fi
+          cat artifacts/release/rpm.sums
+
+          echo "=== Extracting checksums from Arch ==="
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            export GNUPGHOME=$(mktemp -d)
+            chmod 700 "$GNUPGHOME"
+            echo "$GPG_PRIVATE_KEY" | gpg --batch --yes --import 2>/dev/null
+            gpg --batch --yes --decrypt artifacts/arch/SHA256SUMS.asc 2>/dev/null > artifacts/release/arch.sums
+            rm -rf "$GNUPGHOME"
+          else
+            sed -n '/^[0-9a-f]\{64\}  /p' artifacts/arch/SHA256SUMS.asc > artifacts/release/arch.sums
+          fi
+          cat artifacts/release/arch.sums
+
+          # Merge and sort
+          cat artifacts/release/deb.sums artifacts/release/rpm.sums artifacts/release/arch.sums | sort > artifacts/release/SHA256SUMS
+
+          echo "=== Merged SHA256SUMS ==="
+          cat artifacts/release/SHA256SUMS
+
+          # Move packages to release directory
+          mv artifacts/deb/*.deb artifacts/release/
+          mv artifacts/rpm/*.rpm artifacts/release/
+          mv artifacts/arch/*.pkg.tar.zst artifacts/release/
+
+          # Sign the merged checksums
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            cd artifacts/release
+            export GNUPGHOME=$(mktemp -d)
+            chmod 700 "$GNUPGHOME"
+
+            echo "pinentry-mode loopback" > "$GNUPGHOME/gpg.conf"
+            echo "no-tty" >> "$GNUPGHOME/gpg.conf"
+            echo "$GPG_PRIVATE_KEY" | gpg --batch --yes --import
+
+            echo "$GPG_PASSPHRASE" | gpg --batch --yes \
+              --pinentry-mode loopback --passphrase-fd 0 \
+              --clearsign SHA256SUMS
+
+            rm -rf "$GNUPGHOME"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ inputs.tag }}
+          files: |
+            artifacts/release/*.deb
+            artifacts/release/*.rpm
+            artifacts/release/*.pkg.tar.zst
+            artifacts/release/SHA256SUMS*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

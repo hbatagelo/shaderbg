@@ -1,0 +1,84 @@
+id = "3ftSz2"
+name = "Saturday smoke"
+username = "mrange"
+description = """
+CC0: Saturday smoke
+Continuing working on small shaders I wanted to try something different
+from what I've done so far. This creates translucent twisted planes
+with glowing edges that resemble smoke or vapor.
+"""
+resolution_scale = 1.0
+time_scale = 1.0
+time_offset = "0s"
+interval_between_frames = "0s"
+screen_bounds_policy = "all_monitors"
+monitor_selection = ["*"]
+layout_mode = "stretch"
+filter_mode = "linear"
+crossfade_overlap_ratio = 0.0
+
+[image]
+shader = """
+// CC0: Saturday smoke
+//  Continuing working on small shaders I wanted to try something different
+//  from what I've done so far. This creates translucent twisted planes
+//  with glowing edges that resemble smoke or vapor.
+
+// Twigl: https://twigl.app?ol=true&ss=-OS9WbjQWLpMmr_oL7fB
+
+void mainImage(out vec4 O, vec2 C) {
+  // Variables for ray marching: i=ray steps, j=plane index, d=closest distance,
+  // D=temp distance, z=ray depth, T=animated time
+  float i,j,d,D,z,T=.3*iTime;
+
+  // o=accumulated color, p=ray position, P=transformed position, U=utility vector
+  vec4 o,p,P,U=vec4(0,1,2,3);
+
+  // Main ray marching loop - traces rays from camera through each pixel
+  for (
+      vec2 r=iResolution.xy  // Screen resolution
+    ; ++i<77.
+    ; z+=.6*d+1E-3           // Step forward along ray (adaptive step size)
+    )
+
+    // Inner loop: Accumulate colors from multiple twisted planes
+    for (
+        // Convert screen pixel to 3D ray direction, and travel along ray by multiplying by z
+        p=z*normalize(vec3(C-.5*r, r.y)).xyzz
+      , p.z-=d=j=4.   // Move camera back 4 units, reset distance and plane counter
+      ; ++j<9.        // Process 4 different twisted planes (j goes from 5 to 8)
+      ; d = min(d, D) // Track closest surface for proper ray marching
+      )
+        // Calculate plane thickness (varies by layer and vertical position)
+        D = 2./(j-3.)+p.y/3.
+
+        // Apply horizontal sine wave distortion (creates flowing motion)
+      , P = p
+      , P.x -= .3*sin(p.y+T)
+
+        // Rotate around Y-axis with different speeds per plane (creates twist)
+      , P.xz *= mat2(cos(j-T+p.y+11.*U.xywx))
+
+        // Mirror into positive quadrant (creates symmetrical patterns)
+      , P = abs(P)
+
+        // Distance function: combination of plane and cylindrical elements
+      , D = min(
+           // Glowing plane with a small offset to make it translucent
+           max(P.z,P.x-D)+2E-2
+           // Glowing lines at plane boundaries
+         , length(P.xz-D*U.yx)
+         )
+
+        // Generate color: animated rainbow based on plane index, position and depth
+      , P = 1.2+sin(j+U.xyzy+z)
+
+      // Accumulate color weighted by proximity (1/D) and alpha channel
+      // Closer surfaces contribute more light
+      , o += P.w*P/D
+      ;
+    ;
+
+  // Final output: Scale accumulated light and apply smooth tone mapping
+  O = tanh(o/1E3);
+}"""

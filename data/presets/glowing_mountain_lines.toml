@@ -1,0 +1,79 @@
+id = "3cScDw"
+name = "Glowing mountain lines"
+username = "mrange"
+description = """
+CC0: Glowing mountain lines
+Playing around with @XorDev's dot noise function
+Was tinkering, had other plans. This is what happened."""
+resolution_scale = 1.0
+time_scale = 1.0
+time_offset = "0s"
+interval_between_frames = "0s"
+screen_bounds_policy = "all_monitors"
+monitor_selection = ["*"]
+layout_mode = "stretch"
+filter_mode = "linear"
+crossfade_overlap_ratio = 0.0
+
+[image]
+shader = """
+// CC0: Glowing mountain lines
+// Playing around with @XorDev's dot noise function
+// Not what I intended, but it works
+
+// Twigl: https://twigl.app?ol=true&ss=-OZ0M95iFPCSAPdqq9Lt
+
+// Shader entry point: O = output color, C = pixel coordinates
+void mainImage(out vec4 O, vec2 C) {
+ float
+   a      // Amplitude for noise octaves
+ , d      // Distance field value
+ , i      // Ray marching step counter
+ ;
+ vec3
+   p      // Current 3D position being sampled
+ , Z=iResolution                    // Screen resolution
+ , I=normalize(vec3(C, Z.y) -.5*Z)  // Ray direction from camera
+ ;
+ vec4 o;  // Accumulated color output
+ // Main raymarching loop - march ray through 3D space
+ for(
+   Z=vec3(0,0,fract(-iTime)/I.z)     // Ray position (raymarching state)
+ ; ++i<60.
+ ; Z+=1./abs(I)   // Step along ray direction
+ )
+   // Sample at two different Z depths (j=0 and j=2, skipping j=1)
+   for(
+      int j
+    ; j<3
+    ; j+=2
+    ) {
+     // Calculate 3D world position
+     p=Z[j]*I;
+     p.z+=iTime;    // Move forward with time
+
+     p*=.2;         // Scale down the sampling space
+     d=p.y;         // Start with Y coordinate as base
+     O=1.+sin(.5*p.x+p.z+vec4(2,1,0,2));  // Color based on position
+
+     // Generate fractal noise with 3 octaves
+     for(
+       a=.6         // Initial amplitude
+     ; a>.1         // Gives 3 amplitudes
+     ; p=p.yzx      // Rotate coordinates (x->y, y->z, z->x)
+     )
+       // Dot noise by XorDev found here: https://www.shadertoy.com/view/wfsyRX
+       d+=a+a*dot(sin(p), cos(p*1.618).yzx)  // Add noise octave
+     , a*=.5                                 // Halve amplitude each octave
+     , p.yz*=.2*mat2(6,8,-8,6)               // Scale & rotate Y,Z coordinates
+     ;
+
+     // Convert to distance field and add fog effect
+     d=abs(d)+5e-4/I[j]/I[j]+.01*smoothstep(10.,60.,Z[j]);
+     // Accumulate color contribution (volumetric rendering)
+     o+=O.w/d*O*smoothstep(60.,40.,Z[j]);
+   }
+
+ // Apply tone mapping to prevent color overflow
+ O=tanh(o/5e2);
+}"""

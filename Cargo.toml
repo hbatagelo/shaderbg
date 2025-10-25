@@ -1,0 +1,126 @@
+[package]
+name = "shaderbg"
+version = "1.0.0"
+authors = ["Harlen Batagelo <hbatagelo@gmail.com>"]
+license = "GPL-3.0-or-later"
+edition = "2021"
+description = "Shader wallpaper utility for Wayland"
+repository = "https://github.com/hbatagelo/shaderbg"
+keywords = ["graphics", "shaders", "shadertoy", "wayland"]
+categories = ["graphics", "multimedia"]
+readme = "README.md"
+homepage = "https://github.com/hbatagelo/shaderbg"
+
+[features]
+default = ["system-tls"]
+system-tls = ["reqwest/blocking", "reqwest/default-tls"]
+bundled-tls = ["reqwest/blocking", "reqwest/rustls-tls"]
+generate-manpage = []
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+clap = { version = "4", default-features = false, features = [
+    "std",
+    "help",
+    "usage",
+] }
+dirs = "6"
+drm = "0.14"
+epoxy = "0.1"
+function_name = "0.3"
+gl = { version = "0.14" }
+gtk = { package = "gtk4", version = "0.10", default-features = false, features = [
+    "v4_14",
+] }
+gtk4-layer-shell = "0.6"
+humantime-serde = "1"
+image = { version = "0.25", default-features = false, features = [
+    "jpeg",
+    "png",
+] }
+libloading = "0.8"
+log = "0.4"
+num-traits = "0.2"
+owo-colors = "4"
+regex = { version = "1", default-features = false, features = ["unicode-perl"] }
+reqwest = { version = "0.12", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
+simple_logger = "5"
+thiserror = "2"
+toml = "0.9"
+
+[dev-dependencies]
+pretty_assertions = "1"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+opt-level = "z"
+
+[package.metadata.deb]
+extended-description = """\
+Utility for rendering shaders as live wallpapers in Wayland compositors that support the Layer Shell extension.
+
+Shaders can be chosen from a built-in set, imported from [ShaderToy](https://www.shadertoy.com/), \
+or customized via TOML."""
+depends = "libc6, libgtk4-layer-shell0, libssl3"
+section = "utils"
+priority = "optional"
+changelog = "debian/changelog"
+default-features = true
+features = ["generate-manpage"]
+assets = [
+    [
+        "target/release/shaderbg",
+        "/usr/bin/shaderbg",
+        "755",
+    ],
+    [
+        "debian/copyright",
+        "usr/share/doc/shaderbg/copyright",
+        "644",
+    ],
+    [
+        "doc/shaderbg.1",
+        "usr/share/man/man1/",
+        "644",
+    ],
+    [
+        "data/assets/cubemaps/*",
+        "/usr/share/shaderbg/assets/cubemaps/",
+        "644",
+    ],
+    [
+        "data/assets/textures/*",
+        "/usr/share/shaderbg/assets/textures/",
+        "644",
+    ],
+    [
+        "data/assets/volumes/*",
+        "/usr/share/shaderbg/assets/volumes/",
+        "644",
+    ],
+    [
+        "data/presets/*",
+        "/usr/share/shaderbg/presets/",
+        "644",
+    ],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/shaderbg", dest = "/usr/bin/shaderbg", mode = "755" },
+    { source = "doc/shaderbg.1", dest = "/usr/share/man/man1/shaderbg.1", mode = "644" },
+    { source = "data/assets/cubemaps/*", dest = "/usr/share/shaderbg/assets/cubemaps/", mode = "644" },
+    { source = "data/assets/textures/*", dest = "/usr/share/shaderbg/assets/textures/", mode = "644" },
+    { source = "data/assets/volumes/*", dest = "/usr/share/shaderbg/assets/volumes/", mode = "644" },
+    { source = "data/presets/*", dest = "/usr/share/shaderbg/presets/", mode = "644" },
+]
+
+[package.metadata.generate-rpm.requires]
+glibc = "*"
+gtk4-layer-shell = "*"
+openssl-libs = "*"

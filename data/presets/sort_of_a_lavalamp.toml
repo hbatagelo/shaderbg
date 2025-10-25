@@ -1,0 +1,64 @@
+id = "t3yXDh"
+name = "Sort of a lavalamp"
+username = "mrange"
+description = """
+CC0: Sort of a lavalamp
+A quick hack"""
+resolution_scale = 1.0
+time_scale = 1.0
+time_offset = "0s"
+interval_between_frames = "0s"
+screen_bounds_policy = "all_monitors"
+monitor_selection = ["*"]
+layout_mode = "stretch"
+filter_mode = "linear"
+crossfade_overlap_ratio = 0.0
+
+[image]
+shader = """
+// CC0: Sort of a lavalamp
+//  A quick hack
+
+// Twigl: https://twigl.app?ol=true&ss=-OWzaWIseDSMWwS1_go_
+
+void mainImage(out vec4 o, vec2 C) {
+  // Shader variables: i=loop counter, d=distance, z=ray depth, T=animated time
+  float
+    i
+  , d
+  , z
+  , T=iTime*.4  // Slow down time by 2.5x for smoother animation
+  ;
+  // 3D vectors: O=accumulated color, p=current 3D position, S=saved position
+  vec3
+    O
+  , p
+  , S
+  ;
+  // This is a raymarching loop - we step along rays from camera through each pixel
+  for (
+      vec2 r = iResolution.xy,Q  // r=screen resolution, Q=temp 2D vector
+    ; ++i<60.
+    ; O += o.w/d*o.xyz  // Accumulate color: blend current color into total, weighted by alpha and distance
+    )
+    // Ray setup: convert 2D screen coordinate C to 3D ray direction
+    p = z*normalize(vec3(C-.5*r,r.y))  // Create ray from camera through pixel
+  , p.z -= 4.  // Move camera back 4 units from origin
+  , S = p  // Save original ray position for later color calculations
+
+  // Distance field animation: create wobbly, time-varying surface
+  , d = p.y-T  // Base distance varies with height and time (makes it flow)
+  , p.x += .4*(1.+p.y)*sin(d)*cos(.34*d)  // Add wavy distortion that varies with height
+
+  // 2D rotation matrix applied to xz plane - makes the shape twist as it flows
+  , Q = p.xz *= mat2(cos(p.y+vec4(0,11,33,0)-T))  // Rotate based on height and time
+
+  // Distance field calculation: how far are we from the surface?
+  , z+= d = abs(sqrt(length(Q*Q)) - .25*(5.+S.y))/3.+8e-4  // "Square" cylindrical surface with varying radius
+
+  // Color calculation: generate RGBA color based on position and movement
+  , o = 1.+sin(S.y+p.z*.5+S.z-length(S-p)+vec4(2,1,0,8))  // Sine waves create smooth color gradients
+  ;
+  // Tone mapping: convert accumulated brightness to visible range [0,1]
+  o.xyz = tanh(O/1e4);  // tanh() prevents over-bright colors, /1e4 scales down accumulated values
+}"""

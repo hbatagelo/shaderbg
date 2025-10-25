@@ -1,0 +1,68 @@
+name: Generate Debian package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  deb:
+    name: Debian
+    runs-on: ubuntu-25.10
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libgtk-4-dev \
+            libssl-dev \
+            libgtk4-layer-shell-dev \
+            pandoc \
+            groff
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+
+      - name: Build release binary
+        run: cargo build --release --features generate-manpage
+
+      - name: Generate Debian package
+        run: cargo deb --no-build
+
+      - name: Generate and sign checksums
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          cd target/debian
+          sha256sum *.deb > SHA256SUMS
+
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            export GNUPGHOME=$(mktemp -d)
+            chmod 700 "$GNUPGHOME"
+
+            echo "pinentry-mode loopback" > "$GNUPGHOME/gpg.conf"
+            echo "no-tty" >> "$GNUPGHOME/gpg.conf"
+            echo "$GPG_PRIVATE_KEY" | gpg --batch --yes --import
+
+            echo "$GPG_PASSPHRASE" | gpg --batch --yes \
+              --pinentry-mode loopback --passphrase-fd 0 \
+              --clearsign SHA256SUMS
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: shaderbg-x86_64-deb
+          path: |
+            target/debian/*.deb
+            target/debian/SHA256SUMS*

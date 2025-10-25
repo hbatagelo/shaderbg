@@ -1,0 +1,95 @@
+id = "33d3Dn"
+name = "Towards the source of life"
+username = "mrange"
+description = """
+CC0: Towards the source of life
+A bit change of pace today
+Still decently compact
+Now I will take a walk and see if I can shorten it further
+"""
+resolution_scale = 1.0
+time_scale = 0.5
+time_offset = "0s"
+interval_between_frames = "0s"
+screen_bounds_policy = "all_monitors"
+monitor_selection = ["*"]
+layout_mode = "stretch"
+filter_mode = "linear"
+crossfade_overlap_ratio = 0.0
+
+[image]
+shader = """
+// CC0: Towards the source of life
+//  A bit change of pace today
+//  Still decently compact
+//  Now I will take a walk and see if I can shorten it further
+
+// Twigl: https://twigl.app?ol=true&ss=-OTqrs-Td6CYNZQF2MIy
+
+void mainImage(out vec4 O, vec2 C) {
+  float i  // Loop counter for raymarching steps
+      , j  // Multipurpose: fractal octave counter, then canyon depth factor
+      , d  // Distance to nearest mountain surface (controls step size & translucency)
+      , z  // Current distance along the ray (depth into the canyon)
+      , k  // Sine wave modulation for adding surface detail variation
+      ;
+  vec3 r=iResolution  // Screen resolution (width, height, aspect ratio)
+     , o              // Accumulated color/light as we march through the canyon
+     , p              // Current 3D world position along the ray
+     , R=normalize(vec3(C-.5*r.xy, r.y)) // Ray direction from camera through this pixel
+     ;
+  vec4 U = vec4(2,3,1,0); // Reusable color constants (red, green, blue, zero)
+
+  // Raymarching loop: step through the canyon scene
+  for(vec2 P  // 2D coordinate for sampling the mountain height noise
+         , X  // Accumulated mountain height from fractal noise layers
+         , Y  // Current fractal octave amplitude (gets smaller each layer)
+      ; ++i<77.
+      ; z+=.8*d        // Step forward based on distance to nearest surface
+      ) {
+    // Calculate current 3D position along the camera ray
+    p = z*R;
+    p.z += iTime; // Move forward
+
+    // Generate procedural mountain terrain using fractal noise
+    P = p.xz*.5;  // Use XZ plane (top-down view) scaled down for terrain sampling
+    X -= X;       // Reset height accumulator to zero (equivalent to X = vec2(0))
+
+    Y=vec2(.6);   // Start with base amplitude for first noise octave
+    // Build mountain heights using 4 octaves of sine wave interference
+    for (
+         j=0.          // Reset octave counter
+       ; ++j<4.        // Generate 4 octaves of detail
+       ; Y *= vec2(.6,.4)  // Reduce amplitude each octave (creates fractal falloff)
+       )
+        X -= (sin(P.x)*sin(P.y)+1.)*Y // Add sine interference pattern scaled by octave
+      , P *= 2.1*mat2(.6,.8,-.6,.8)   // Rotate & scale coordinates for next octave detail
+      ;
+
+    // Shape the canyon walls using distance from center
+    k = sin(p.x)*sin(p.z); // Surface texture variation using sine waves
+    j = smoothstep(.5,4.,abs(p.x+sin(.2*p.z)*sin(.32*p.z))); // Canyon width (0=center, 1=walls)
+
+    // Combine mountain height with canyon shaping and add vertical offset
+    X = abs(X*j+p.y+vec2(1,2)); // j scales mountains (higher at canyon walls)
+    j = .1+j*j; // Convert canyon distance to lighting intensity
+
+    // Distance field: how close we are to the mountain surface
+    d = min(X.x, X.y)+1E-3; // Take closest mountain, add epsilon for translucency
+
+    // Add colored light based on which mountain face we're closest to
+    o += X.x < X.y
+      ? j/d*vec3(2.+k,3.*p.y,3)  // Outer mountain face: purple-red with height gradient
+      : 20.*j/sqrt(d)*(1.+k)*(1.+sin(99.*p.y+50.*p.z)/z)*U.wzy // Inner face: blue with fine detail
+      ;
+
+    // Add the river of light at canyon bottom
+    o += .2/max(j-.1, 5e-4)*U.zxy; // Bright cyan-yellow glow, protected from divide-by-zero
+  }
+
+  // Add horizon glow effect in the distance
+  o += 1E3/abs(2.*R.y+.2)*smoothstep(25., 50.,z)*vec3(1,2,6); // Cyan sky glow
+
+  // Final color output with tone mapping and contrast adjustment
+  O = tanh(o.xyzx/3e4)/.8-U*8E-2; // Compress bright values, boost contrast
+}"""

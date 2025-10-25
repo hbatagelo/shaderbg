@@ -1,0 +1,70 @@
+name: Generate RPM package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  rpm:
+    name: Fedora
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:42
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          dnf -y install \
+            gcc-c++ \
+            gtk4-devel \
+            libepoxy-devel \
+            openssl-devel \
+            gtk4-layer-shell-devel \
+            pandoc \
+            groff
+
+      - name: Install cargo-generate-rpm
+        run: cargo install cargo-generate-rpm
+
+      - name: Build release binary
+        run: cargo build --release --features generate-manpage
+
+      - name: Generate RPM package
+        run: cargo generate-rpm
+
+      - name: Generate and sign checksums
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          cd target/generate-rpm
+          sha256sum *.rpm > SHA256SUMS
+
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            export GNUPGHOME=$(mktemp -d)
+            chmod 700 "$GNUPGHOME"
+
+            echo "pinentry-mode loopback" > "$GNUPGHOME/gpg.conf"
+            echo "no-tty" >> "$GNUPGHOME/gpg.conf"
+            echo "$GPG_PRIVATE_KEY" | gpg --batch --yes --import
+
+            echo "$GPG_PASSPHRASE" | gpg --batch --yes \
+              --pinentry-mode loopback --passphrase-fd 0 \
+              --clearsign SHA256SUMS
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: shaderbg-x86_64-rpm
+          path: |
+            target/generate-rpm/*.rpm
+            target/generate-rpm/SHA256SUMS*

@@ -1,0 +1,87 @@
+id = "wcG3Dw"
+name = "Glowing recursive torus"
+username = "mrange"
+description = """
+CC0: Glowing recursive torus
+Bit of tinkering during the weekend
+"""
+resolution_scale = 1.0
+time_scale = 1.0
+time_offset = "0s"
+interval_between_frames = "0s"
+screen_bounds_policy = "all_monitors"
+monitor_selection = ["*"]
+layout_mode = "stretch"
+filter_mode = "linear"
+crossfade_overlap_ratio = 0.0
+
+[image]
+shader = """
+// CC0: Glowing recursive torus
+//  Bit of tinkering during the weekend
+
+// If you like to see it as a twigl: https://twigl.app?ol=true&ss=-ORCznh2yaCrZylsXzbc
+
+void mainImage(out vec4 O, vec2 C) {
+  // p = current 3D position along ray, o = accumulated color/brightness
+  // r = screen resolution, T = torus dimensions
+  vec3 p,o,r=iResolution,T;
+
+  // Create rotation matrix that slowly rotates over time
+  mat2 R=mat2(cos(iTime*.1+vec4(0,11,33,0)));
+
+  // Main raymarching loop - cast ray from camera into scene
+  for(
+      // Variable declarations:
+      // i = ray step counter, z = ray distance from camera
+      // d = distance to surface, S = signed distance for inside/outside
+      // Z = original z position, a = rotation angle, l = length helper
+      float i,z,d,S,Z
+    ; ++i<66.                  // Number of ray marching steps
+    ; z+=.5*d+1e-3
+    ) {          // Move forward by half the distance to nearest surface + small epsilon
+
+    // Calculate ray direction from camera through current pixel
+    // Convert screen coords to normalized ray direction, multiply by distance
+    p=z*normalize(vec3(C-.5*r.xy, r.y));
+    p.z-=4.;  // Move camera back 4 units from origin
+
+    Z=p.z;    // Store original z coordinate for lighting
+    S=p.y+1.; // Keep y sign before abs to determine if we are in reflection or not
+
+    // Create reflection
+    p.y=abs(S)-1.6;
+
+    // Apply rotations
+    p.xy*=R;  // Rotate in XY plane
+    p.yz*=R;  // Rotate in YZ plane
+
+    T=vec3(1, .2, 0);  // Initialize torus
+    // Inner loop: Generate recursive torus geometry
+    for(
+        d=1.              // Initialize: distance=1
+      ; T.x>.05
+      ; d=min(d,length(vec2(length(p.xz*=R)-T.x,p.y))-T.y)  // Distance to torus shape
+        // Repeat angular (12-times)
+        // Angular repetition (pModPolar) found here: https://mercury.sexy/hg_sdf/
+      , p.xz=length(p.xz)*cos(mod(atan(p.x,p.z)+.262,.524)-.262+vec2(0,11))
+      , p.x-=T.x
+      , T*=.4                                               // Scale torus dimension
+      )
+      p=p.yzx;  // Flip torus shape
+
+    d=abs(d);  // Make torus shape not solid which will make it appear transparent
+
+    // Accumulate color/lighting based on distance to surface
+    // sin() creates color variation, S>0 determines if we're in reflection or not
+    o+=(1.+sin(4.5-Z+(S>0.?1.:.7)*vec3(2,1,0)))  // Color with red/orange tint
+       /max(S>0.?d:pow(d,1e1),S>0.?1e-3:7e-3);   // Brightness based on distance
+
+    // Add extra brightness if reflected
+    S <0. ? o += 2e1 : o;
+  }
+
+  // Apply tone mapping to convert accumulated brightness to final color
+  // tanh() compresses bright values, .xyzz converts vec3 to vec4 with alpha=z
+  O=tanh(o/2e4).xyzz;
+}"""

@@ -1,0 +1,173 @@
+id = "3ffyRn"
+name = "Mini starry planes"
+username = "mrange"
+description = """
+A remake of a previous shader but tried to make it a bit smaller
+Roughly 1/3 of the size of the original shader and looks mostly the same
+The code is completely unreadable as an added bonus"""
+resolution_scale = 1.0
+time_scale = 0.05
+time_offset = "0s"
+interval_between_frames = "0s"
+screen_bounds_policy = "all_monitors"
+monitor_selection = ["*"]
+layout_mode = "stretch"
+filter_mode = "linear"
+crossfade_overlap_ratio = 0.0
+
+[image]
+shader = """
+// CC0: Mini starry planes
+// A remake of a previous shader but tried to make it a bit smaller.
+// Roughly 1/3 of the size of the original shader and looks mostly the same.
+// The code is completely unreadable as an added bonus.
+
+
+// There is probably some more bytes to save but I am too tired now.
+
+// Original: https://www.shadervoy.com/view/MfjyWK
+
+// Twigl: https://twigl.app?ol=true&ss=-OXiw6FtGNVIAq3V6M0X
+
+// The main function, which is executed for every pixel on the screen.
+// 'o' is the output pixel color (RGBA), 'C' is the input pixel coordinate.
+void mainImage(out vec4 o, vec2 C) {
+  // --- Variable Declarations ---
+  // Many variables are declared with single letters and reused for different purposes to save space.
+  float
+    // z: Initially set to the current time (iTime). It's later repurposed as the distance along the view ray.
+    z=iTime
+    // f: Stores the value of acos(0.0), which is PI/2. Used as a constant in trigonometric calculations.
+  , f=acos(0.)
+    // i: The main loop counter for the ray marching steps.
+  , i
+    // d: Represents the calculated signed distance from a point to the star shape (Signed Distance Function).
+  , d
+    // a: Used to store an anti-aliasing factor, calculated from the pixel's screen-space derivative.
+  , a
+    // l: A general-purpose variable, typically for holding a length or for alpha blending calculations.
+  , l
+  ;
+
+  vec4
+    // U: A utility vector containing (0.0, 1.0, 2.0, 3.0). Used as a shorthand for various calculations.
+    U=vec4(0,1,2,3)
+  ;
+  vec2
+    // m: The resolution of the viewport (e.g., 1920.0, 1080.0).
+    m=iResolution.xy
+    // q: The current pixel's coordinate, remapped from [0, resolution] to [-resolution, resolution], with (0,0) at the center.
+  , q=2.*C-m
+    // A: Two small, irrational-looking numbers used to generate pseudo-random rotations and movements.
+  , A=vec2(31,41)/2e2
+    // D: Constants derived from U, used for positioning the star planes.
+  , D=sqrt(2.*U.zy) // vec2(2, sqrt(2.))
+    // s, c: sine and cosine of time-dependent angles, used to animate the camera's position and orientation.
+  , s=sin(A*z)
+  , c=cos(A*z)
+    // k, K: Pre-calculated 2D vectors used in the geometric construction (folding) of the 5-pointed star shape.
+  , k=sin(.4*f+vec2(f,0))
+  , K=k*(U.zx-1.)
+  ;
+
+  // --- Camera and Ray Setup ---
+  // This section sets up a virtual camera and calculates the direction of the ray to be cast for the current pixel.
+  vec3
+    // O: The Ray Origin (camera position). It moves in a Lissajous curve on the XY plane and forward along the Z axis over time.
+    O=vec3(D*s,z)
+    // P: The primary direction the camera is looking (forward vector). The derivate of the camera position is the direction used.
+  , P=normalize(vec3(A*D*c,1))
+    // X: The camera's "right" vector, calculated using the cross product to be orthogonal to the forward direction.
+    //    The 2nd derivate of the camera position is used to modify what is up to make the camera tilt.
+  , X=normalize(cross(U.xyx-vec3(-A*A*D*s,0),P))
+    // I: The final, normalized Ray Direction for the current pixel. It's calculated based on the pixel's screen
+    //    coordinates (q) to create the perspective view.
+  , I=normalize(q.x*X+q.y*cross(P,X)+1.8*P*m.y)
+  ;
+
+  // Initialize z for ray marching. `fract` creates a repeating time effect for the planes.
+  // Division by I.z corrects the step distance based on the ray's angle to the planes.
+  z=fract(-z)/I.z;
+
+  // --- Ray Marching Loop ---
+  // This loop iteratively steps a ray through space to find intersections with starry planes.
+  for(
+      // o-=o is a short way to initialize the output color 'o' to black (0,0,0,0).
+      o-=o
+      // Loop a maximum of 16 steps, or stop early if the pixel becomes fully opaque (alpha o.w >= 1.0).
+  ; ++i < 17. && o.w < 1.
+    // At the end of each loop, advance the ray to the position of the next plane.
+  ; z+=1./I.z
+  )
+    // P becomes the current point in 3D space being sampled (the "ray tip").
+    P=O+z*I
+    // f is repurposed to store the integer z-coordinate of P, effectively giving each plane a unique ID.
+  , f=P.z
+    // s is recalculated based on the plane ID 'f' to give each plane a consistent, unique rotation.
+  , s=sin(A*f)
+    // This transforms the 3D sample point P into a 2D coordinate on the current plane.
+    // The subtraction of D*s makes the planes appear to undulate as the camera flies through them.
+  , P.xy-=D*s
+    // q is now the 2D coordinate on the current plane.
+    // A rotation matrix is applied to make the stars on each plane spin. The angle is a complex
+    // function of the plane ID 'f' to make the rotation depend on the curvature.
+  , q = P.xy*-.5*mat2(cos(11.*(U.xywx-(A*A*A*D*D*s*cos(A*f)).x)))
+    // a gets the anti-aliasing factor. fwidth(q) measures how much 'q' changes between adjacent pixels.
+  , a=length(fwidth(q))
+    // l gets the distance from the origin of the current plane's coordinate system.
+  , l=dot(q,q)
+
+    // --- Star Shape Generation (Signed Distance Function) ---
+    // The following lines create a 5-pointed star
+    // About here IQ's star5 function is inlined: https://iquilezles.org/articles/distfunctions2d/
+    // Mixed with his softmin function: https://www.iquilezles.org/www/articles/smin/smin.htm
+
+    // Reflect around the y-axis reducing work to 50%
+  , q.x=abs(q.x)
+    // These two lines perform reflection to create the five-fold symmetry of the star.
+  , q-=2.*max(dot(K,q),0.)*K
+  , q-=2.*min(dot(k,q),0.)*k
+    // These lines shape the coordinates to define the sharp points and edges of the star.
+  , d=clamp(.5+5.*q.x,0.,1.)
+  , q.x=d*(.2-.2*d+2.*q.x)-q.x
+  , q.y-=.45
+  , m=1.6*k.yx
+  , m.y-=1.
+  , d=min(dot(q,m)/dot(m,m),.45)
+    // --- Coloring and Compositing ---
+    // The camera's 'right' vector, X, is now repurposed to store the color of the star for this plane.
+  , X=
+       // The base color is generated from sine waves, giving a colorful appearance.
+       // The color depends on the plane ID 'f' and the distance from the center 'l'.
+      mix(
+        (1.+sin(U.xyz+f*.5+2.*sqrt(l)))
+      // This part creates the bright, glowing core of the star and a glittery texture.
+      // It mixes a very bright core (proportional to 1/(l*l)) with the base color.
+      // The `smoothstep` with a sine function creates a line effect, which is anti-aliased using 'a'.
+        *mix(.5/l,1.,smoothstep(-.5,.5,sin(l*314.)-a*2e2))
+      // The overall brightness is attenuated by distance from the center.
+        /6./l
+      // This mixes the final star color with a bright white (U.zzz = vec3(2.)) based on the signed distance 'd'.
+      // The smoothstep function uses 'a' to create a soft, anti-aliased edge for the star shape.
+      , U.zzz
+      , smoothstep(a,-a,d=length(q-m*d)*sign(q.y*m.x-q.x*m.y)-.03)
+      )
+
+    // --- Alpha Blending ---
+    // This performs standard "front-to-back" alpha blending, now with the alpha calculation inlined for efficiency.
+    // 'f' now calculates the alpha *contribution* of the current layer.
+    // 'l' is repurposed to be the new total accumulated alpha.
+  , l=o.w+(f=smoothstep(-a,a,.01+d)*smoothstep(17., 9., z)*(1.-o.w))
+    // If the new alpha contributes to the image, mix the old and new colors.
+    // The mix factor `f/l` correctly weights the new color's contribution.
+    // `o-o` is a short way to write `vec4(0.0)`.
+  , o=l>0.?vec4(mix(o.xyz,X,f/l),l):o-o
+  ;
+
+  // --- Final Output Color Correction ---
+  // Apply a final post-processing effect to the accumulated color.
+  // The `tanh` function is a form of tone mapping that prevents colors from blowing out to pure white,
+  // and `sqrt` further adjusts the brightness curve for a pleasing contrast.
+  // Multiplying by o.w is important for correct blending if this shader were used as a layer.
+  o=sqrt(tanh(o*o.w));
+}"""
