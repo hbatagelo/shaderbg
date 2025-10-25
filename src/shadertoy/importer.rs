@@ -8,7 +8,7 @@ use crate::preset::*;
 const SHADERTOY_URL: &str = "https://www.shadertoy.com/";
 
 pub fn fetch_from_web(shader_id: &str, api_key: &str) -> Result<Preset, String> {
-    let url = format!("{SHADERTOY_URL}api/v1/shaders/{shader_id}?key={api_key}");
+    let url = format!("{SHADERTOY_URL}api/v1/shaders/{shader_id}");
     log::debug!("Requesting URL: {url}");
 
     let client = reqwest::blocking::Client::builder()
@@ -17,6 +17,7 @@ pub fn fetch_from_web(shader_id: &str, api_key: &str) -> Result<Preset, String> 
 
     let response = client
         .get(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
         .send()
         .map_err(|err| format!("Request failed: {err}"))?;
 

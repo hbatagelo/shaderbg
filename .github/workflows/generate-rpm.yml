@@ -9,6 +9,8 @@ on:
 jobs:
   rpm:
     name: Fedora
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     container:
       image: fedora:42
