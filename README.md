@@ -1,7 +1,7 @@
 # ShaderBG
 
-[![Build](https://github.com/hbatagelo/shaderbg/actions/workflows/build.yml/badge.svg)](https://github.com/hbatagelo/shaderbg/actions/workflows/buildrelease.yml)
-[![Testing](https://github.com/hbatagelo/shaderbg/actions/workflows/testing.yml/badge.svg)](https://github.com/hbatagelo/shaderbg/actions/workflows/testing.yml)
+[![Build](https://github.com/hbatagelo/shaderbg/actions/workflows/build.yml/badge.svg)](https://github.com/hbatagelo/shaderbg/actions/workflows/build.yml)
+[![Test](https://github.com/hbatagelo/shaderbg/actions/workflows/test.yml/badge.svg)](https://github.com/hbatagelo/shaderbg/actions/workflows/test.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](https://opensource.org/licenses/GPL-3.0)
 
 Shader wallpaper utility for Wayland.
@@ -60,7 +60,6 @@ gpg --decrypt SHA256SUMS.asc | sha256sum -c --ignore-missing
    ```
 
    </details>
-
 
    <details>
    <summary>Debian and derivatives</summary>
@@ -124,7 +123,7 @@ shaderbg <shader_id> <api_key>
 * See <https://www.shadertoy.com/howto> for information on how to get an API key.
 * The imported shader is added to the presets as `<shader_id>.toml` and rewrites any previous file with the same name.
 
-> [!NOTE]  
+> \[!NOTE]
 > The ShaderToy API is currently unavailable (hopefully temporarily) due to safety measures taken against AI crawlers.
 
 You can also load a custom preset file:
