@@ -123,9 +123,6 @@ shaderbg <shader_id> <api_key>
 * See <https://www.shadertoy.com/howto> for information on how to get an API key.
 * The imported shader is added to the presets as `<shader_id>.toml` and rewrites any previous file with the same name.
 
-> \[!NOTE]
-> The ShaderToy API is currently unavailable (hopefully temporarily) due to safety measures taken against AI crawlers.
-
 You can also load a custom preset file:
 
 ```sh
