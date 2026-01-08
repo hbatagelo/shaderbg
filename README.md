@@ -173,8 +173,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 [buffer_a.input_0]
 type = "misc"
 name = "Buffer A"
-wrap = "nearest"
-filter = "repeat"
+wrap = "repeat"
+filter = "nearest"
 vflip = true
 
 [buffer_a.input_1]
