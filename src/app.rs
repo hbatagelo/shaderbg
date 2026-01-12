@@ -45,6 +45,16 @@ pub struct AreaData {
     pub info_overlay: Option<gtk::Widget>,
 }
 
+pub fn init_logging() -> Result<(), log::SetLoggerError> {
+    let level = if cfg!(debug_assertions) {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Warn
+    };
+
+    simple_logger::SimpleLogger::new().with_level(level).init()
+}
+
 pub fn run(preset: Preset, preset_file: Option<PathBuf>, show_overlay: bool) -> glib::ExitCode {
     let app = gtk::Application::builder().application_id(APP_ID).build();
 
@@ -72,8 +82,8 @@ pub fn run(preset: Preset, preset_file: Option<PathBuf>, show_overlay: bool) -> 
     app.run_with_args(&[""])
 }
 
-fn on_preset_change(app: &gtk::Application, file: &Path) {
-    match Preset::from_file(file) {
+fn on_preset_change(app: &gtk::Application, preset_path: &Path) {
+    match Preset::from_toml_file(preset_path) {
         Ok(new_preset) => {
             let app_data = get_data!(app, AppData, as_mut());
 

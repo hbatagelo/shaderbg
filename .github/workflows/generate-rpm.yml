@@ -28,7 +28,6 @@ jobs:
             gcc-c++ \
             gtk4-devel \
             libepoxy-devel \
-            openssl-devel \
             gtk4-layer-shell-devel \
             pandoc \
             groff

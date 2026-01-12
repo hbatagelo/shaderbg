@@ -20,11 +20,16 @@ use crate::{app::*, *};
 
 #[derive(Debug, Error)]
 pub enum PresetError {
-    #[error("Reading error: {0}")]
+    #[error("I/O error")]
     Io(#[from] io::Error),
-
-    #[error("TOML deserialization error: {0}")]
-    Parse(#[from] toml::de::Error),
+    #[error("TOML parse error")]
+    TomlParse(#[from] toml::de::Error),
+    #[error("JSON parse error")]
+    JsonParse(#[from] serde_json::Error),
+    #[error("Failed to import from JSON: {0}")]
+    Import(String),
+    #[error("No .toml presets found in directory")]
+    NoPresets,
 }
 
 #[derive(Copy, Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -177,9 +182,12 @@ pub struct Preset {
 }
 
 impl Preset {
-    pub fn from_file<P: AsRef<std::path::Path>>(file: P) -> Result<Self, PresetError> {
-        let content = fs::read_to_string(file)?;
+    pub fn from_toml_file(path: &Path) -> Result<Self, PresetError> {
+        let content = fs::read_to_string(path)?;
         Ok(toml::from_str(&content)?)
+    }
+    pub fn from_json_file(path: &Path) -> Result<Self, PresetError> {
+        crate::shadertoy::importer::import_from_json_file(path)
     }
     pub fn with_serde_defaults() -> Self {
         toml::from_str("").expect("Failed to create default preset")
@@ -253,59 +261,59 @@ mod validators {
     }
 }
 
-pub fn load_preset_from_file(file: &Path) -> Result<(Preset, Option<PathBuf>), String> {
-    Preset::from_file(file)
-        .map(|cfg| (cfg, Some(file.to_path_buf())))
-        .map_err(|err| format!("Failed to load {}: {err}", file.display()))
+pub fn load_preset_from_toml_file(path: &Path) -> Result<(Preset, Option<PathBuf>), PresetError> {
+    Ok((Preset::from_toml_file(path)?, Some(path.to_path_buf())))
 }
 
-pub fn load_preset_from_directory(dir: &Path) -> Result<(Preset, Option<PathBuf>), String> {
-    let toml_files = std::fs::read_dir(dir)
-        .map_err(|err| format!("Failed to read directory: {err}"))?
+pub fn load_preset_from_json_file(path: &Path) -> Result<(Preset, Option<PathBuf>), PresetError> {
+    let preset = Preset::from_json_file(path)?;
+    let saved_path = save_to_presets_directory(&preset)?;
+    Ok((preset, Some(saved_path)))
+}
+
+pub fn load_preset_from_directory(dir: &Path) -> Result<(Preset, Option<PathBuf>), PresetError> {
+    let toml_files: Vec<_> = fs::read_dir(dir)?
         .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.is_file() && path.extension() == Some(OsStr::new("toml")))
-        .collect::<Vec<PathBuf>>();
+        .map(|e| e.path())
+        .filter(|p| p.extension() == Some(OsStr::new("toml")))
+        .collect();
 
-    let chosen_path = if toml_files.is_empty() {
-        return Err("No .toml files found in directory".to_string());
-    } else {
-        let mut hasher = DefaultHasher::new();
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-            .hash(&mut hasher);
-        let index = hasher.finish() as usize % toml_files.len();
-        &toml_files[index]
-    };
+    let chosen = toml_files
+        .get(random_index(toml_files.len()))
+        .ok_or(PresetError::NoPresets)?;
 
-    let cfg = Preset::from_file(chosen_path)
-        .map_err(|err| format!("Failed to load {}: {err}", chosen_path.display()))?;
-
-    Ok((cfg, Some(chosen_path.clone())))
+    Ok((Preset::from_toml_file(chosen)?, Some(chosen.clone())))
 }
 
-pub fn save_to_presets_directory(preset: &Preset, shader_id: &str) -> Option<PathBuf> {
-    let presets_dir = presets_dir();
-    let toml_path = presets_dir.join(format!("{shader_id}.toml"));
-    match save_preset_to_file(preset, &toml_path) {
-        Ok(_) => {
-            log::debug!("Saved '{shader_id}' as preset");
-            Some(toml_path)
-        }
-        Err(err) => {
-            log::warn!("Failed to save preset: {err}");
-            None
-        }
+fn random_index(len: usize) -> usize {
+    let mut hasher = DefaultHasher::new();
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos()
+        .hash(&mut hasher);
+    (hasher.finish() as usize) % len
+}
+
+fn preset_filename(preset: &Preset) -> Result<String, PresetError> {
+    if preset.id.trim().is_empty() {
+        Err(PresetError::Import("Preset has no shader ID".into()))
+    } else {
+        Ok(format!("{}.toml", preset.id))
     }
 }
 
-fn save_preset_to_file(preset: &Preset, filename: &Path) -> Result<(), String> {
-    let toml_str = toml::to_string_pretty(preset)
-        .map_err(|err| format!("Failed to serialize preset: {err}"))?;
+fn save_to_presets_directory(preset: &Preset) -> Result<PathBuf, PresetError> {
+    let path = presets_dir().join(preset_filename(preset)?);
+    save_preset_to_file(preset, &path)?;
+    log::debug!("Saved preset '{}'", preset.id);
+    Ok(path)
+}
 
-    std::fs::write(filename, toml_str).map_err(|err| format!("Failed to write file: {err}"))
+fn save_preset_to_file(preset: &Preset, path: &Path) -> Result<(), PresetError> {
+    let toml = toml::to_string_pretty(preset).map_err(|e| PresetError::Import(e.to_string()))?;
+    fs::write(path, toml)?;
+    Ok(())
 }
 
 pub fn presets_dir() -> PathBuf {
@@ -335,11 +343,11 @@ pub fn presets_dir() -> PathBuf {
     dir
 }
 
-pub fn setup_preset_monitor<F>(app: &gtk::Application, preset_file: &Path, on_change: F)
+pub fn setup_preset_monitor<F>(app: &gtk::Application, preset_path: &Path, on_change: F)
 where
     F: Fn(&gtk::Application, &Path) + 'static,
 {
-    let file = gio::File::for_path(preset_file);
+    let file = gio::File::for_path(preset_path);
 
     let monitor = match file.monitor(
         gio::FileMonitorFlags::NONE,
@@ -364,5 +372,5 @@ where
 
     let app_data = get_data!(app, AppData, as_mut());
     app_data.preset_monitor = Some(monitor);
-    app_data.preset_file = Some(preset_file.to_path_buf());
+    app_data.preset_file = Some(preset_path.to_path_buf());
 }

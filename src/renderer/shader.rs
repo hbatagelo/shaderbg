@@ -9,15 +9,15 @@ use gl::types::*;
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum ShaderError {
     #[error("Shader preprocess #error at line {1}: {0}")]
-    PreprocessError(String, usize),
+    ShaderPreprocess(String, usize),
     #[error("Shader compile error: {0}")]
-    CompileError(String),
-    #[error("Shader link error: {0}")]
-    LinkError(String),
+    ShaderCompile(String),
+    #[error("Program link error: {0}")]
+    ProgramLink(String),
     #[error{"{0}"}]
-    Utf8Error(#[from] std::string::FromUtf8Error),
+    Utf8(#[from] std::string::FromUtf8Error),
     #[error{"{0}"}]
-    NulError(#[from] std::ffi::NulError),
+    Nul(#[from] std::ffi::NulError),
 }
 
 pub struct Shader {
@@ -40,7 +40,7 @@ impl Shader {
                 let mut log = Vec::with_capacity(log_len as usize);
                 gl::GetShaderInfoLog(id, log_len, &mut log_len, log.as_mut_ptr() as *mut _);
                 log.set_len(log_len as usize);
-                Err(ShaderError::CompileError(String::from_utf8(log)?))
+                Err(ShaderError::ShaderCompile(String::from_utf8(log)?))
             } else {
                 Ok(Self { id })
             }

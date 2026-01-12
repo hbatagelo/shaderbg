@@ -29,7 +29,7 @@ impl Program {
                 let mut log = Vec::with_capacity(log_len as usize);
                 gl::GetProgramInfoLog(id, log_len, &mut log_len, log.as_mut_ptr() as *mut _);
                 log.set_len(log_len as usize);
-                Err(ShaderError::LinkError(String::from_utf8(log)?))
+                Err(ShaderError::ProgramLink(String::from_utf8(log)?))
             } else {
                 Ok(Self { id })
             }

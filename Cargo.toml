@@ -1,6 +1,6 @@
 [package]
 name = "shaderbg"
-version = "1.0.0"
+version = "1.1.0"
 authors = ["Harlen Batagelo <hbatagelo@gmail.com>"]
 license = "GPL-3.0-or-later"
 edition = "2021"
@@ -12,9 +12,7 @@ readme = "README.md"
 homepage = "https://github.com/hbatagelo/shaderbg"
 
 [features]
-default = ["system-tls"]
-system-tls = ["reqwest/blocking", "reqwest/default-tls"]
-bundled-tls = ["reqwest/blocking", "reqwest/rustls-tls"]
+default = []
 generate-manpage = []
 
 [dependencies]
@@ -32,23 +30,22 @@ gl = { version = "0.14" }
 gtk = { package = "gtk4", version = "0.10", default-features = false, features = [
     "v4_14",
 ] }
-gtk4-layer-shell = "0.6"
+gtk4-layer-shell = "0.7.1"
 humantime-serde = "1"
 image = { version = "0.25", default-features = false, features = [
     "jpeg",
     "png",
 ] }
-libloading = "0.8"
+libloading = "0.9"
 log = "0.4"
 num-traits = "0.2"
 owo-colors = "4"
 regex = { version = "1", default-features = false, features = ["unicode-perl"] }
-reqwest = { version = "0.12", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 simple_logger = "5"
 thiserror = "2"
-toml = "0.9"
+toml = "0.9.8"
 
 [dev-dependencies]
 pretty_assertions = "1"
@@ -62,11 +59,12 @@ opt-level = "z"
 
 [package.metadata.deb]
 extended-description = """\
-Utility for rendering shaders as live wallpapers in Wayland compositors that support the Layer Shell extension.
+Utility for rendering shaders as live wallpapers in Wayland compositors that\
+support the Layer Shell extension.
 
-Shaders can be chosen from a built-in set, imported from [ShaderToy](https://www.shadertoy.com/), \
+Shaders can be chosen from a built-in set, imported from ShaderToy,\
 or customized via TOML."""
-depends = "libc6, libgtk4-layer-shell0, libssl3"
+depends = "libc6, libgtk4-layer-shell0"
 section = "utils"
 priority = "optional"
 changelog = "debian/changelog"
@@ -123,4 +121,3 @@ assets = [
 [package.metadata.generate-rpm.requires]
 glibc = "*"
 gtk4-layer-shell = "*"
-openssl-libs = "*"

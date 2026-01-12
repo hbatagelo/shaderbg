@@ -1,12 +1,12 @@
 # Maintainer: Harlen Batagelo <hbatagelo@gmail.com>
 pkgname=shaderbg
-pkgver=1.0.0
+pkgver=1.1.0
 pkgrel=1
 pkgdesc="Shader wallpaper utility for Wayland"
 arch=('x86_64')
 url="https://github.com/hbatagelo/shaderbg"
 license=('GPL-3.0-or-later')
-depends=('gtk4' 'gtk4-layer-shell' 'openssl')
+depends=('gtk4' 'gtk4-layer-shell')
 makedepends=('cargo' 'pandoc' 'groff')
 options=('!debug')
 

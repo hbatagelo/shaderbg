@@ -1,3 +1,10 @@
+shaderbg (1.1.0) stable; urgency=low
+
+  * Replace ShaderToy API fetching with JSON file import
+  * Remove OpenSSL dependency
+
+ -- Harlen Batagelo <hbatagelo@gmail.com>  Thu, 11 Jan 2026 22:47:00 -0300
+
 shaderbg (1.0.0) stable; urgency=low
 
   * Initial release

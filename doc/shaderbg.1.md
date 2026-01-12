@@ -6,24 +6,19 @@ shaderbg - Shader wallpaper utility for Wayland
 
 ## SYNOPSIS
 
-**shaderbg** [*file*] | [*shader_id* *api_key*] [**--no-overlay**]
+**shaderbg** [OPTIONS] [FILE]
 
-**shaderbg** [**-h**|**--help**] [**-V**|**--version**]
+**shaderbg** [**-h**|**--help**]
+**shaderbg** [**-V**|**--version**]
 
 ## DESCRIPTION
 
-**shaderbg** renders shaders as live wallpapers in Wayland compositors that support the wlr-layer-shell protocol. It can load shaders from preset files or directly from ShaderToy using the ShaderToy API.
+**shaderbg** renders shaders as live wallpapers in Wayland compositors that support the wlr-layer-shell protocol. Shaders can be loaded from preset files or imported from ShaderToy JSON exports.
 
 ## ARGUMENTS
 
-*file*
-: Path to a TOML preset file containing shader configuration
-
-*shader_id*
-: ShaderToy shader ID (6-character identifier from ShaderToy URL)
-
-*api_key*
-: ShaderToy API key (required when using shader_id)
+*FILE*
+: Optional path to a TOML preset file or ShaderToy JSON export file
 
 ## OPTIONS
 
@@ -35,28 +30,6 @@ shaderbg - Shader wallpaper utility for Wayland
 
 **-V**, **--version**
 : Print version information and exit
-
-## USAGE
-
-Run with no arguments to use a random preset:
-```
-shaderbg
-```
-
-Load a specific TOML preset file:
-```
-shaderbg my-shader.toml
-```
-
-Load a shader directly from ShaderToy:
-```
-shaderbg XsXXDN your-api-key
-```
-
-Disable the information overlay when loading a preset:
-```
-shaderbg my-shader.toml --no-overlay
-```
 
 ## FILES
 
@@ -71,11 +44,11 @@ shaderbg my-shader.toml --no-overlay
 **shaderbg**
 : Start with a random shader preset
 
-**shaderbg ~/.local/share/shaderbg/presets/neonwave_sunrise.toml**
+**shaderbg ~/.local/share/shaderbg/presets/galaxy.toml**
 : Load a specific shader preset
 
-**shaderbg 4dXGR4 abc123**
-: Load ShaderToy shader with ID "4dXGR4" using API key "abc123"
+**shaderbg shadertoy-export.json**
+: Import from ShaderToy JSON export file
 
 **shaderbg my-shader.toml --no-overlay**
 : Load preset without displaying the shader information overlay

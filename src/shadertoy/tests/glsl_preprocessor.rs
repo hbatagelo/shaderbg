@@ -539,7 +539,7 @@ mod error_directive {
     use pretty_assertions::assert_eq;
 
     use crate::{
-        renderer::shader::ShaderError::PreprocessError, shadertoy::glsl_preprocessor::preprocess,
+        renderer::shader::ShaderError::ShaderPreprocess, shadertoy::glsl_preprocessor::preprocess,
     };
 
     #[test]
@@ -555,7 +555,7 @@ mod error_directive {
         let error = result.unwrap_err();
         assert_eq!(
             error,
-            PreprocessError("Debug mode is enabled".to_string(), 4)
+            ShaderPreprocess("Debug mode is enabled".to_string(), 4)
         );
     }
 
@@ -569,7 +569,7 @@ mod error_directive {
         let error = result.unwrap_err();
         assert_eq!(
             error,
-            PreprocessError("This is an error without quotes".to_string(), 2)
+            ShaderPreprocess("This is an error without quotes".to_string(), 2)
         );
     }
 
@@ -583,7 +583,7 @@ mod error_directive {
         let error = result.unwrap_err();
         assert_eq!(
             error,
-            PreprocessError("Single quoted error message".to_string(), 2)
+            ShaderPreprocess("Single quoted error message".to_string(), 2)
         );
     }
 
@@ -597,7 +597,7 @@ mod error_directive {
         let error = result.unwrap_err();
         assert_eq!(
             error,
-            PreprocessError("Error directive encountered".to_string(), 2)
+            ShaderPreprocess("Error directive encountered".to_string(), 2)
         );
     }
 
@@ -629,7 +629,7 @@ void main() {
         assert!(result.is_err());
         let error = result.unwrap_err();
         // Note: Macros are not expanded in #error messages
-        assert_eq!(error, PreprocessError("ERROR_MSG".to_string(), 3));
+        assert_eq!(error, ShaderPreprocess("ERROR_MSG".to_string(), 3));
     }
 
     #[test]
@@ -648,7 +648,7 @@ void main() {
         let error = result.unwrap_err();
         assert_eq!(
             error,
-            PreprocessError("Both features enabled".to_string(), 6)
+            ShaderPreprocess("Both features enabled".to_string(), 6)
         );
     }
 
@@ -669,7 +669,7 @@ void main() {
         let error = result.unwrap_err();
         assert_eq!(
             error,
-            PreprocessError("Version 2 is deprecated".to_string(), 6)
+            ShaderPreprocess("Version 2 is deprecated".to_string(), 6)
         );
     }
 
@@ -687,7 +687,7 @@ void main() {
         let result = preprocess(source);
         assert!(result.is_err());
         let error = result.unwrap_err();
-        assert_eq!(error, PreprocessError("Error on line 7".to_string(), 7));
+        assert_eq!(error, ShaderPreprocess("Error on line 7".to_string(), 7));
     }
 
     #[test]
@@ -702,7 +702,7 @@ void main() {
         let result = preprocess(source);
         assert!(result.is_err());
         let error = result.unwrap_err();
-        assert_eq!(error, PreprocessError("First error".to_string(), 4));
+        assert_eq!(error, ShaderPreprocess("First error".to_string(), 4));
     }
 }
 
@@ -1318,7 +1318,7 @@ mod general {
     use pretty_assertions::assert_eq;
 
     use crate::{
-        renderer::shader::ShaderError::PreprocessError, shadertoy::glsl_preprocessor::preprocess,
+        renderer::shader::ShaderError::ShaderPreprocess, shadertoy::glsl_preprocessor::preprocess,
     };
 
     #[test]
@@ -1378,7 +1378,7 @@ void main() {
         let error = result.unwrap_err();
         assert_eq!(
             error,
-            PreprocessError("Unknown directive (unknown)".to_string(), 1)
+            ShaderPreprocess("Unknown directive (unknown)".to_string(), 1)
         );
     }
 }

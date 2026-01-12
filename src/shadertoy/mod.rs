@@ -14,11 +14,9 @@ mod glsl_depth_tracker;
 mod glsl_initializer;
 mod glsl_preprocessor;
 mod glsl_utils;
-mod importer;
+pub mod importer;
 
-use std::path::PathBuf;
-
-use crate::{preset::*, renderer::shader::ShaderError, shadertoy::importer::fetch_from_web};
+use crate::renderer::shader::ShaderError;
 
 #[rustfmt::skip]
 pub const DIFF_RESERVED_WORDS_4_2: [&str; 63] = [
@@ -60,23 +58,6 @@ pub const DIFF_RESERVED_WORDS_3_0_ES_REV_2: [&str; 1] = [
     "packed",
 ];
 
-pub fn load_from_web(shader_id: &str, api_key: &str) -> Result<(Preset, Option<PathBuf>), String> {
-    match fetch_from_web(shader_id, api_key) {
-        Ok(preset) => {
-            let saved_path = save_to_presets_directory(&preset, shader_id);
-            Ok((preset, saved_path))
-        }
-        Err(err) => {
-            if err.contains("Shader not found") {
-                log::warn!("Shader '{shader_id}' not found - it may be private or unlisted",);
-            } else {
-                log::warn!("Failed to fetch from web: {err}");
-            }
-            load_from_presets_directory(shader_id)
-        }
-    }
-}
-
 pub fn to_glsl_version(
     source: &str,
     version: (i32, i32),
@@ -109,20 +90,4 @@ pub fn to_glsl_version(
     }
 
     Ok(source)
-}
-
-fn load_from_presets_directory(shader_id: &str) -> Result<(Preset, Option<PathBuf>), String> {
-    let presets_dir = presets_dir();
-    let file = presets_dir.join(format!("{shader_id}.toml"));
-
-    match Preset::from_file(&file) {
-        Ok(preset) => {
-            log::warn!("Using preset from: {:?}", file);
-            Ok((preset, Some(file)))
-        }
-        Err(err) => {
-            log::warn!("Failed to load from presets: {err}");
-            Err("Failed to load shader".to_string())
-        }
-    }
 }

@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use crate::renderer::shader::ShaderError;
 
-use super::{glsl_preprocessor::ShaderError::PreprocessError, glsl_utils::strip_comments};
+use super::{glsl_preprocessor::ShaderError::ShaderPreprocess, glsl_utils::strip_comments};
 
 enum BranchState {
     Searching,
@@ -108,7 +108,7 @@ impl GlslPreprocessor {
                         }
                         "pragma" | "extension" | "version" | "line" => {}
                         _ => {
-                            return Err(PreprocessError(
+                            return Err(ShaderPreprocess(
                                 format!("Unknown directive ({directive})"),
                                 self.line_number,
                             ))
@@ -263,7 +263,7 @@ impl GlslPreprocessor {
             error_message.to_string()
         };
 
-        PreprocessError(message, self.line_number)
+        ShaderPreprocess(message, self.line_number)
     }
 
     fn evaluate_if_expr(&self, expr: &str) -> bool {

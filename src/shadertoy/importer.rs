@@ -4,52 +4,26 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use crate::preset::*;
+use std::{fs, path::Path};
 
-const SHADERTOY_URL: &str = "https://www.shadertoy.com/";
+pub fn import_from_json_file(path: &Path) -> Result<Preset, PresetError> {
+    let json_str = fs::read_to_string(path)?;
 
-pub fn fetch_from_web(shader_id: &str, api_key: &str) -> Result<Preset, String> {
-    let url = format!("{SHADERTOY_URL}api/v1/shaders/{shader_id}");
-    log::debug!("Requesting URL: {url}");
-
-    let client = reqwest::blocking::Client::builder()
-        .build()
-        .map_err(|err| format!("Failed to create HTTP client: {err}"))?;
-
-    let response = client
-        .get(&url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .send()
-        .map_err(|err| format!("Request failed: {err}"))?;
-
-    if !response.status().is_success() {
-        return Err(format!("HTTP status: {}", response.status()));
-    }
-
-    let json_str = response
-        .text()
-        .map_err(|err| format!("Failed to read response: {err}"))?;
-
-    let json_value: serde_json::Value =
-        serde_json::from_str(&json_str).map_err(|err| format!("Failed to parse JSON: {err}"))?;
-
-    if let Some(err) = json_value.get("Error").and_then(|err| err.as_str()) {
-        if err == "Shader not found" {
-            return Err("Shader not found (may be private or unlisted)".to_string());
-        } else {
-            return Err(format!("Shadertoy API error: {err}"));
-        }
-    }
+    let json_value: serde_json::Value = serde_json::from_str(&json_str)?;
 
     let shader_obj = json_value
         .get("Shader")
-        .ok_or("Missing 'Shader' key in JSON")?;
-    let info = shader_obj.get("info").ok_or("Missing 'info' key in JSON")?;
+        .ok_or_else(|| PresetError::Import("Missing 'Shader' key".into()))?;
+    let info = shader_obj
+        .get("info")
+        .ok_or_else(|| PresetError::Import("Missing 'info' key".into()))?;
 
     let mut preset = Preset::with_serde_defaults();
+
     preset.id = info
         .get("id")
         .and_then(|id| id.as_str())
-        .unwrap_or(shader_id)
+        .unwrap_or("")
         .to_string();
 
     preset.name = info
@@ -73,31 +47,27 @@ pub fn fetch_from_web(shader_id: &str, api_key: &str) -> Result<Preset, String> 
     let renderpasses = shader_obj
         .get("renderpass")
         .and_then(|rp| rp.as_array())
-        .ok_or("Missing or invalid 'renderpass' array")?;
+        .ok_or_else(|| PresetError::Import("Missing or invalid 'renderpass' array".into()))?;
 
     for pass in renderpasses {
-        process_single_pass(&client, &mut preset, pass)?;
+        process_single_pass(&mut preset, pass)?;
     }
 
-    log::debug!("Fetched '{shader_id}' successfully");
+    log::debug!("Loaded JSON successfully");
 
     Ok(preset)
 }
 
-fn process_single_pass(
-    client: &reqwest::blocking::Client,
-    preset: &mut Preset,
-    pass: &serde_json::Value,
-) -> Result<(), String> {
+fn process_single_pass(preset: &mut Preset, pass: &serde_json::Value) -> Result<(), PresetError> {
     let name = pass
         .get("name")
         .and_then(|n| n.as_str())
-        .ok_or("Missing pass name")?;
+        .ok_or_else(|| PresetError::Import("Missing pass 'name'".into()))?;
 
     let code = pass
         .get("code")
         .and_then(|c| c.as_str())
-        .ok_or("Missing pass code")?
+        .ok_or_else(|| PresetError::Import("Missing pass 'code'".into()))?
         .to_string();
 
     let inputs = pass
@@ -106,7 +76,7 @@ fn process_single_pass(
         .map(|v| v.as_slice())
         .unwrap_or(&[]);
 
-    let pass_inputs = process_pass_inputs(client, inputs, name)?;
+    let pass_inputs = process_pass_inputs(inputs, name)?;
     let pass_config = Pass {
         shader: code,
         input_0: pass_inputs[0].clone(),
@@ -135,14 +105,13 @@ fn process_single_pass(
 }
 
 fn process_pass_inputs(
-    client: &reqwest::blocking::Client,
     inputs: &[serde_json::Value],
     pass_name: &str,
-) -> Result<[Option<Input>; 4], String> {
+) -> Result<[Option<Input>; 4], PresetError> {
     let mut pass_inputs: [Option<Input>; 4] = core::array::from_fn(|_| None);
 
     for input in inputs {
-        if let Some(processed_input) = process_single_input(client, input, pass_name)? {
+        if let Some(processed_input) = process_single_input(input, pass_name)? {
             let channel = input.get("channel").and_then(|c| c.as_i64()).unwrap_or(-1);
             if (0..=3).contains(&channel) {
                 pass_inputs[channel as usize] = Some(processed_input);
@@ -154,10 +123,9 @@ fn process_pass_inputs(
 }
 
 fn process_single_input(
-    client: &reqwest::blocking::Client,
     input: &serde_json::Value,
     pass_name: &str,
-) -> Result<Option<Input>, String> {
+) -> Result<Option<Input>, PresetError> {
     let ctype = input.get("ctype").and_then(|t| t.as_str()).unwrap_or("");
 
     if !is_supported_channel_type(ctype) {
@@ -167,7 +135,7 @@ fn process_single_input(
 
     let sampler = input.get("sampler").unwrap_or(&serde_json::Value::Null);
     let src = input.get("src").and_then(|s| s.as_str()).unwrap_or("");
-    let input_config = create_input_config(client, ctype, src, sampler)?;
+    let input_config = create_input_config(ctype, src, sampler)?;
 
     Ok(Some(input_config))
 }
@@ -175,16 +143,16 @@ fn process_single_input(
 fn is_supported_channel_type(ctype: &str) -> bool {
     !matches!(
         ctype,
+        // Unsupported types
         "video" | "music" | "musicstream" | "keyboard" | "webcam" | "mic"
     )
 }
 
 fn create_input_config(
-    client: &reqwest::blocking::Client,
     ctype: &str,
     src: &str,
     sampler: &serde_json::Value,
-) -> Result<Input, String> {
+) -> Result<Input, PresetError> {
     let _type = match ctype {
         "texture" => InputType::Texture,
         "cubemap" => InputType::Cubemap,
@@ -210,7 +178,7 @@ fn create_input_config(
             "buffer02.png" => "Buffer C",
             "buffer03.png" => "Buffer D",
             "cubemap00.png" => "Cubemap A",
-            _ => asset_name_from_src(client, src)?,
+            _ => asset_name_from_src(src)?,
         }
         .to_string()
     } else {
@@ -251,61 +219,62 @@ fn create_input_config(
     })
 }
 
-fn asset_name_from_src(
-    client: &reqwest::blocking::Client,
-    src: &str,
-) -> Result<&'static str, String> {
-    let url = format!("{SHADERTOY_URL}{src}");
-    let response = client.head(&url).send().map_err(|err| err.to_string())?;
+fn asset_name_from_src(src: &str) -> Result<&'static str, PresetError> {
+    let stem = std::path::Path::new(src)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| {
+            PresetError::Import(format!("Could not extract asset filename from: {src}"))
+        })?;
 
-    if !response.status().is_success() {
-        return Err(format!("HTTP status: {}", response.status()));
-    }
-
-    let content_length = response
-        .headers()
-        .get("content-length")
-        .ok_or_else(|| "No content-length header".to_string())?
-        .to_str()
-        .map_err(|_| "Invalid content-length header".to_string())?
-        .parse::<u64>()
-        .map_err(|_| "Failed to parse content-length".to_string())?;
-
-    // A quick (but brittle) identification method that takes advantage of the
-    // fact that each asset has a distinct length. Currently maps 27 known assets.
-    match content_length {
-        112578 => Ok("Abstract 1"),
-        149508 => Ok("Abstract 2"),
-        204227 => Ok("Abstract 3"),
-        241 => Ok("Bayer"),
-        4202841 => Ok("Blue Noise"),
-        1320842 => Ok("Font 1"),
-        67474 => Ok("Gray Noise Medium"),
-        4241 => Ok("Gray Noise Small"),
-        204414 => Ok("Lichen"),
-        87761 => Ok("London"),
-        1269 => Ok("Nyancat"),
-        183069 => Ok("Organic 1"),
-        174949 => Ok("Organic 2"),
-        396818 => Ok("Organic 3"),
-        305501 => Ok("Organic 4"),
-        101929 => Ok("Pebbles"),
-        264082 => Ok("RGBA Noise Medium"),
-        16558 => Ok("RGBA Noise Small"),
-        68242 => Ok("Rock Tiles"),
-        49498 => Ok("Rusty Metal"),
-        87562 => Ok("Stars"),
-        154431 => Ok("Wood"),
-        94156 => Ok("Forest"),
-        3459 => Ok("Forest Blurred"),
-        47339 => Ok("St. Peter's Basilica"),
-        5719 => Ok("St. Peter's Basilica Blurred"),
-        93210 => Ok("Uffizi Gallery"),
-        3742 => Ok("Uffizi Gallery Blurred"),
-        32788 => Ok("Grey Noise3D"),
-        131092 => Ok("RGBA Noise3D"),
-        _ => Err(format!(
-            "Unknown content length ({content_length} bytes) for {src}"
-        )),
+    match stem {
+        // Textures
+        "52d2a8f514c4fd2d9866587f4d7b2a5bfa1a11a0e772077d7682deb8b3b517e5" => Ok("Abstract 1"),
+        "bd6464771e47eed832c5eb2cd85cdc0bfc697786b903bfd30f890f9d4fc36657" => Ok("Abstract 2"),
+        "8979352a182bde7c3c651ba2b2f4e0615de819585cc37b7175bcefbca15a6683" => Ok("Abstract 3"),
+        "85a6d68622b36995ccb98a89bbb119edf167c914660e4450d313de049320005c" => Ok("Bayer"),
+        "cb49c003b454385aa9975733aff4571c62182ccdda480aaba9a8d250014f00ec" => Ok("Blue Noise"),
+        "08b42b43ae9d3c0605da11d0eac86618ea888e62cdd9518ee8b9097488b31560" => Ok("Font 1"),
+        "0c7bf5fe9462d5bffbd11126e82908e39be3ce56220d900f633d58fb432e56f5" => {
+            Ok("Gray Noise Medium")
+        }
+        "0a40562379b63dfb89227e6d172f39fdce9022cba76623f1054a2c83d6c0ba5d" => {
+            Ok("Gray Noise Small")
+        }
+        "fb918796edc3d2221218db0811e240e72e340350008338b0c07a52bd353666a6" => Ok("Lichen"),
+        "8de3a3924cb95bd0e95a443fff0326c869f9d4979cd1d5b6e94e2a01f5be53e9" => Ok("London"),
+        "cbcbb5a6cfb55c36f8f021fbb0e3f69ac96339a39fa85cd96f2017a2192821b5" => Ok("Nyancat"),
+        "cd4c518bc6ef165c39d4405b347b51ba40f8d7a065ab0e8d2e4f422cbc1e8a43" => Ok("Organic 1"),
+        "92d7758c402f0927011ca8d0a7e40251439fba3a1dac26f5b8b62026323501aa" => Ok("Organic 2"),
+        "79520a3d3a0f4d3caa440802ef4362e99d54e12b1392973e4ea321840970a88a" => Ok("Organic 3"),
+        "3871e838723dd6b166e490664eead8ec60aedd6b8d95bc8e2fe3f882f0fd90f0" => Ok("Organic 4"),
+        "ad56fba948dfba9ae698198c109e71f118a54d209c0ea50d77ea546abad89c57" => Ok("Pebbles"),
+        "f735bee5b64ef98879dc618b016ecf7939a5756040c2cde21ccb15e69a6e1cfb" => {
+            Ok("RGBA Noise Medium")
+        }
+        "3083c722c0c738cad0f468383167a0d246f91af2bfa373e9c5c094fb8c8413e0" => {
+            Ok("RGBA Noise Small")
+        }
+        "10eb4fe0ac8a7dc348a2cc282ca5df1759ab8bf680117e4047728100969e7b43" => Ok("Rock Tiles"),
+        "95b90082f799f48677b4f206d856ad572f1d178c676269eac6347631d4447258" => Ok("Rusty Metal"),
+        "e6e5631ce1237ae4c05b3563eda686400a401df4548d0f9fad40ecac1659c46c" => Ok("Stars"),
+        "1f7dca9c22f324751f2a5a59c9b181dfe3b5564a04b724c657732d0bf09c99db" => Ok("Wood"),
+        // Cubemaps
+        "94284d43be78f00eb6b298e6d78656a1b34e2b91b34940d02f1ca8b22310e8a0" => Ok("Forest"),
+        "0681c014f6c88c356cf9c0394ffe015acc94ec1474924855f45d22c3e70b5785" => Ok("Forest Blurred"),
+        "488bd40303a2e2b9a71987e48c66ef41f5e937174bf316d3ed0e86410784b919" => {
+            Ok("St. Peter's Basilica")
+        }
+        "550a8cce1bf403869fde66dddf6028dd171f1852f4a704a465e1b80d23955663" => {
+            Ok("St. Peter's Basilica Blurred")
+        }
+        "585f9546c092f53ded45332b343144396c0b2d70d9965f585ebc172080d8aa58" => Ok("Uffizi Gallery"),
+        "793a105653fbdadabdc1325ca08675e1ce48ae5f12e37973829c87bea4be3232" => {
+            Ok("Uffizi Gallery Blurred")
+        }
+        // Volumes
+        "27012b4eadd0c3ce12498b867058e4f717ce79e10a99568cca461682d84a4b04" => Ok("Grey Noise3D"),
+        "aea6b99da1d53055107966b59ac5444fc8bc7b3ce2d0bbb6a4a3cbae1d97f3aa" => Ok("RGBA Noise3D"),
+        _ => Err(PresetError::Import(format!("Unknown asset name: {stem}"))),
     }
 }

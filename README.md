@@ -10,18 +10,18 @@ Shader wallpaper utility for Wayland.
 
 <sup>[Colorful underwater bubbles II](https://www.shadertoy.com/view/mlBSWc) on [Sway](https://swaywm.org/)</sup>
 
-ShaderBG is a wallpaper tool that renders shaders as live wallpapers in Wayland compositors that support the [wlr-layer-shell](https://wayland.app/protocols/wlr-layer-shell-unstable-v1) protocol. Shaders can be chosen from a built-in set, imported from [ShaderToy](https://www.shadertoy.com/), or customized via TOML.
+ShaderBG is a wallpaper tool that renders shaders as live wallpapers in Wayland compositors that support the [wlr-layer-shell](https://wayland.app/protocols/wlr-layer-shell-unstable-v1) protocol. Shaders can be chosen from a built-in set, imported from [ShaderToy](https://www.shadertoy.com/) JSON exports, or customized via TOML.
 
 On compositors that don't support wlr-layer-shell, ShaderBG falls back to a regular window application.
 
 See the `shaderbg(1)` man page for usage instructions.
 
-## Features
+## Key features
 
 * Import from ShaderToy
 * Multi-monitor support
 * Configuration hot reload
-* Cross fading between frames
+* Slideshow effect with cross fading between frames
 * Anti-aliasing (SSAA)
 
 ## Installation
@@ -65,7 +65,7 @@ gpg --decrypt SHA256SUMS.asc | sha256sum -c --ignore-missing
    <summary>Debian and derivatives</summary>
 
    ```sh
-   sudo apt install build-essential libgtk-4-dev libssl-dev libgtk4-layer-shell-dev
+   sudo apt install build-essential libgtk-4-dev libgtk4-layer-shell-dev
    ```
 
    </details>
@@ -74,7 +74,7 @@ gpg --decrypt SHA256SUMS.asc | sha256sum -c --ignore-missing
    <summary>Fedora and derivatives</summary>
 
    ```sh
-   sudo dnf install gcc-c++ gtk4-devel libepoxy-devel openssl-devel gtk4-layer-shell-devel
+   sudo dnf install gcc-c++ gtk4-devel libepoxy-devel gtk4-layer-shell-devel
    ```
 
    </details>
@@ -105,7 +105,7 @@ gpg --decrypt SHA256SUMS.asc | sha256sum -c --ignore-missing
 
 ## Usage
 
-Run with no arguments to randomly select a shader configuration from the presets:
+Run with no arguments to randomly select a shader from the presets:
 
 ```sh
 shaderbg
@@ -113,23 +113,22 @@ shaderbg
 
 * Presets are located at `$XDG_DATA_HOME/shaderbg/presets` or `$HOME/.local/share/shaderbg/presets`.
 
-Import a shader from ShaderToy using a shader ID and API key:
+Import from ShaderToy JSON export:
 
 ```sh
-shaderbg <shader_id> <api_key>
+shaderbg <json_file>
 ```
 
-* The shader must be set to 'public + api' in ShaderToy.
-* See <https://www.shadertoy.com/howto> for information on how to get an API key.
-* The imported shader is added to the presets as `<shader_id>.toml` and rewrites any previous file with the same name.
+* The JSON file is the response from the API request `https://www.shadertoy.com/api/v1/shaders/<shader_id>?key=<api_key>`, where `<shader_id>` is the ID of the shader set to 'public + api' in ShaderToy, and `<api_key>` is the API key. See <https://www.shadertoy.com/howto> for more information on how to use the ShaderToy API.
+* The imported shader is added to the presets as `<shader_id>.toml` and overwrites any previous file with the same name.
 
 You can also load a custom preset file:
 
 ```sh
-shaderbg <file>
+shaderbg <toml_file>
 ```
 
-where `<file>` is a TOML file containing the shader settings. An example preset corresponding to <https://www.shadertoy.com/view/wfjcR3> is given below:
+An example TOML preset corresponding to <https://www.shadertoy.com/view/wfjcR3> is given below:
 
 ```toml
 id = "wfjcR3"
@@ -211,6 +210,8 @@ interval_between_frames = "0s"
 crossfade_overlap_ratio = 0.0
 ```
 
+If the TOML file is not found, ShaderBG will automatically look for it in the presets directory.
+
 The shader is reloaded automatically when its TOML file is edited while in use.
 
 Whenever a shader is (re)loaded, a text overlay containing the shader name and author is displayed for a few seconds. Use `--no-overlay` to hide the overlay.
@@ -261,7 +262,7 @@ The preset file supports the following keys:
   * `"center"`: centers without scaling (may underscan)
   * `"repeat"`: tiles by repeating the frame
   * `"mirrored_repeat"`: tiles using mirror-repeat wrapping
-* `interval_between_frames` (**string**): Minimum time between frames. Use this to limit the frame rate (e.g., `"100ms"` to cap at 10 frames per second) or create a slideshow effect (e.g., `"60s"` to render a new frame each minute). Default is `"0s"` (non-throttled animation).
+* `interval_between_frames` (**string**): Minimum time between frames. Use this to limit the frame rate and save energy (e.g., `"100ms"` to cap at 10 frames per second) or create a slideshow effect (e.g., `"60s"` to render a new frame each minute). Default is `"0s"` (non-throttled animation).
 * `crossfade_overlap_ratio` (**float**): Controls smooth frame transitions through cross fading, from 0 (no overlap; default) to 1 (always transitioning). Cross fading is enabled only if this setting and `interval_between_frames` are non-zero.
 
 ### Time scale and offset
@@ -312,4 +313,4 @@ The preset file supports the following keys:
 
 ShaderBG is licensed under the terms of GPLv3. See [LICENSE](https://github.com/hbatagelo/shaderbg/blob/main/LICENSE) for the full text.
 
-ShaderBG uses the ShaderToy API to import shaders. The predefined textures have been downloaded and adapted from ShaderToy.
+The predefined textures have been downloaded and adapted from ShaderToy.
