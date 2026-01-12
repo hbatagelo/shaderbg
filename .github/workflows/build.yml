@@ -11,6 +11,8 @@ jobs:
   deb:
     name: Build
     runs-on: self-hosted
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout source
