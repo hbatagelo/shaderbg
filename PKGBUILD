@@ -1,6 +1,6 @@
 # Maintainer: Harlen Batagelo <hbatagelo@gmail.com>
 pkgname=shaderbg
-pkgver=1.1.0
+pkgver=1.2.0
 pkgrel=1
 pkgdesc="Shader wallpaper utility for Wayland"
 arch=('x86_64')

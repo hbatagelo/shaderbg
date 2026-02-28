@@ -3,9 +3,28 @@
 // https://github.com/hbatagelo/shaderbg
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! ShaderToy JSON importer.
+//!
+//! Converts ShaderToy JSON export files into internal [`Preset`]
+//! representations used by the renderer.
+//!
+//! This importer is intentionally permissive: unsupported ShaderToy
+//! features degrade gracefully instead of aborting import.
+
 use crate::preset::*;
 use std::{fs, path::Path};
 
+/// Imports a ShaderToy JSON export into a [`Preset`].
+///
+/// The JSON must follow the structure produced by the ShaderToy API.
+///
+/// The importer initializes a preset using serde defaults, fills
+/// metadata fields from `Shader.info`, and then reconstructs the
+/// render passes and channel inputs.
+///
+/// Unsupported passes or channel types are ignored with warnings.
+///
+/// Returns an error when mandatory JSON fields are missing.
 pub fn import_from_json_file(path: &Path) -> Result<Preset, PresetError> {
     let json_str = fs::read_to_string(path)?;
 
@@ -58,6 +77,9 @@ pub fn import_from_json_file(path: &Path) -> Result<Preset, PresetError> {
     Ok(preset)
 }
 
+/// Converts a single ShaderToy render pass into an internal [`Pass`].
+///
+/// Unknown or unsupported pass types are ignored.
 fn process_single_pass(preset: &mut Preset, pass: &serde_json::Value) -> Result<(), PresetError> {
     let name = pass
         .get("name")
@@ -77,12 +99,15 @@ fn process_single_pass(preset: &mut Preset, pass: &serde_json::Value) -> Result<
         .unwrap_or(&[]);
 
     let pass_inputs = process_pass_inputs(inputs, name)?;
+
+    let [input_0, input_1, input_2, input_3] = pass_inputs;
+
     let pass_config = Pass {
         shader: code,
-        input_0: pass_inputs[0].clone(),
-        input_1: pass_inputs[1].clone(),
-        input_2: pass_inputs[2].clone(),
-        input_3: pass_inputs[3].clone(),
+        input_0,
+        input_1,
+        input_2,
+        input_3,
     };
 
     match name {
@@ -104,6 +129,11 @@ fn process_single_pass(preset: &mut Preset, pass: &serde_json::Value) -> Result<
     Ok(())
 }
 
+/// Builds the four ShaderToy input channels (`iChannel0..3`)
+/// for a render pass.
+///
+/// Missing channels remain `None`.
+/// Channels outside the valid range `[0,3]` are ignored.
 fn process_pass_inputs(
     inputs: &[serde_json::Value],
     pass_name: &str,
@@ -122,6 +152,10 @@ fn process_pass_inputs(
     Ok(pass_inputs)
 }
 
+/// Converts a single ShaderToy channel description into an [`Input`].
+///
+/// Unsupported channel types are logged and replaced by a
+/// fallback input so the preset remains loadable.
 fn process_single_input(
     input: &serde_json::Value,
     pass_name: &str,
@@ -140,14 +174,22 @@ fn process_single_input(
     Ok(Some(input_config))
 }
 
+/// Returns whether a ShaderToy channel type is supported by ShaderBG.
+///
+/// Unsupported types are accepted during import but replaced with
+/// fallback inputs.
 fn is_supported_channel_type(ctype: &str) -> bool {
     !matches!(
         ctype,
         // Unsupported types
-        "video" | "music" | "musicstream" | "keyboard" | "webcam" | "mic"
+        "video" | "music" | "musicstream" | "webcam" | "mic"
     )
 }
 
+/// Translates ShaderToy channel metadata into an [`Input`] configuration.
+///
+/// Some ShaderToy media identifiers are rewritten into logical
+/// buffer names (`Buffer A`, `Cubemap A`, etc.).
 fn create_input_config(
     ctype: &str,
     src: &str,
@@ -168,6 +210,8 @@ fn create_input_config(
 
     let name = if !is_supported_channel_type(ctype) {
         "fallback".to_string()
+    } else if _type == InputType::Keyboard {
+        "".to_string()
     } else if let Some(filename) = std::path::Path::new(src)
         .file_name()
         .and_then(|s| s.to_str())
@@ -219,6 +263,13 @@ fn create_input_config(
     })
 }
 
+/// Maps ShaderToy media hashes to human-readable asset names.
+///
+/// ShaderToy references built-in assets using hashed filenames.
+/// This table converts known hashes into stable logical names
+/// understood by the texture manager.
+///
+/// Returns an error if the asset hash is unknown.
 fn asset_name_from_src(src: &str) -> Result<&'static str, PresetError> {
     let stem = std::path::Path::new(src)
         .file_stem()

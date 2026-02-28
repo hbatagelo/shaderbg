@@ -3,6 +3,14 @@
 // https://github.com/hbatagelo/shaderbg
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! GLSL variable initialization pass.
+//!
+//! Ensures compatibility between ShaderToy GLSL ES shaders and
+//! desktop OpenGL GLSL by inserting explicit initializers where
+//! desktop drivers require defined values.
+//!
+//! This pass runs after preprocessing and before shader compilation.
+
 use num_traits::Saturating;
 use std::collections::HashMap;
 
@@ -21,12 +29,15 @@ struct StructDefinition {
     members: Vec<StructMember>,
 }
 
+/// Parses GLSL ES code to find uninitialized variables and
+/// generates text modifications to initialize them with default values.
 struct GlslInitializer<'a> {
     source_str: &'a str,
     source_bytes: &'a [u8],
     struct_defs: HashMap<String, StructDefinition>,
 }
 
+/// Returns the GLSL ES code with all uninitialized variables initialized.
 pub fn initialize_uninitialized_variables(source: &str) -> Result<String, ShaderError> {
     let mut source = glsl_preprocessor::preprocess(source)?;
 
@@ -35,6 +46,7 @@ pub fn initialize_uninitialized_variables(source: &str) -> Result<String, Shader
         source.replace_range(start..end, &replacement);
     }
 
+    // Remove empty lines
     Ok(source
         .lines()
         .filter(|line| !line.trim().is_empty())
@@ -51,6 +63,8 @@ impl<'a> GlslInitializer<'a> {
         }
     }
 
+    /// Parses the source code and returns a vector of modifications.
+    /// Each modification is a tuple `(start, end, replacement_string)`.
     fn modifications(&mut self) -> Vec<(usize, usize, String)> {
         #[derive(PartialEq, Eq)]
         enum ParseState {
@@ -371,7 +385,7 @@ impl<'a> GlslInitializer<'a> {
         while i < self.source_bytes.len() {
             let byte = self.source_bytes[i];
             if byte == b'"' {
-                break;
+                break; // Assume strings don't contain semicolons for simplicity
             }
             local_depth.update_brackets(byte);
             local_depth.update_for_loop(byte);
@@ -397,6 +411,7 @@ impl<'a> GlslInitializer<'a> {
                     return trimmed.to_string();
                 }
 
+                // Handles both `var[size]` and `[size] var` forms
                 let (full_variable_decl, array_spec_part) = if trimmed.starts_with('[') {
                     let end_spec_idx = trimmed.rfind(']').map(|i| i + 1).unwrap_or(0);
                     let spec = &trimmed[..end_spec_idx];
@@ -483,6 +498,7 @@ fn generate_array_initializer_recursive(
         return scalar_or_struct_default(base_type, struct_defs);
     }
 
+    // Process dimensions from last to first (right-to-left)
     let last_dim = *dims.last().unwrap();
     let inner_dims = &dims[..dims.len() - 1];
 

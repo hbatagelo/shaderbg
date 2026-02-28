@@ -3,18 +3,12 @@ Upstream-Name: shaderbg
 Upstream-Contact: Harlen Batagelo <hbatagelo@gmail.com>
 Source: https://github.com/hbatagelo/shaderbg
 
-Files:
- *
+Files: *
 Copyright: 2025 Harlen Batagelo <hbatagelo@gmail.com>
 License: GPL-3+
 
-Files: assets/*
-Copyright: 2025 Shadertoy <https://www.shadertoy.com>
-License: CC-BY-NC-SA-3.0
-Comment: Assets obtained with Shadertoy.com API
-
 Files: presets/*
-Copyright: No Copyright
+Copyright: None
 License: CC0
 
 License: GPL-3+
@@ -34,14 +28,8 @@ Comment:
  On Debian systems, the complete text of the GNU General
  Public License version 3 can be found in "/usr/share/common-licenses/GPL-3".
 
-License: CC-BY-NC-SA-3.0
- Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported License
- .
- The complete text of this license can be found at:
- https://creativecommons.org/licenses/by-nc-sa/3.0/
-
 License: CC0
  Creative Commons CC0 1.0 Universal
  .
- The complete text of this license can be found at:
- https://creativecommons.org/publicdomain/zero/1.0/
+ The complete text of this license can be found at
+ <https://creativecommons.org/publicdomain/zero/1.0/>.

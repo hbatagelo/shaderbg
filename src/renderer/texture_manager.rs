@@ -3,32 +3,40 @@
 // https://github.com/hbatagelo/shaderbg
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! Texture resource management for ShaderToy-style inputs.
+//!
+//! Responsible for loading external textures (2D, cubemap, 3D),
+//! registering render-pass outputs as textures, and managing
+//! texture lifetime, including the ShaderToy keyboard input texture.
+
 use gl::types::*;
 use image::*;
 use std::{collections::HashMap, path::PathBuf};
 
-use crate::{geometry::Size, preset::*, APP_NAME};
+use crate::{geometry::Size, keyboard_controller::KeyboardData, preset::*, APP_NAME};
 
 use super::render_pass::RenderPass;
 
+/// GPU texture wrapper with ownership semantics.
+///
+/// Textures created from external inputs are owned and deleted
+/// by the manager. Textures originating from framebuffer outputs
+/// are borrowed and must not be deleted.
 struct Texture {
     id: GLuint,
     input_type: InputType,
-    frame_number: u32,
 }
 
 impl Texture {
     fn new(id: u32, input_type: InputType) -> Self {
-        Self {
-            id,
-            input_type,
-            frame_number: u32::MAX,
-        }
+        Self { id, input_type }
     }
 }
 
 impl Drop for Texture {
     fn drop(&mut self) {
+        // Only delete textures created by the manager.
+        // Framebuffer attachments are owned elsewhere.
         let managed = self.input_type != InputType::Misc;
         if managed {
             unsafe { gl::DeleteTextures(1, &self.id) };
@@ -36,36 +44,85 @@ impl Drop for Texture {
     }
 }
 
+/// Width matches JavaScript keycode range (0–255).
+const KEYBOARD_TEXTURE_WIDTH: usize = 256;
+
+/// Three rows encoding ShaderToy keyboard state:
+/// Row #0: Keydown
+/// Row #1: keypressed (one-frame pulse)
+/// Row #2: Toggled
+const KEYBOARD_TEXTURE_HEIGHT: usize = 3;
+
+/// Central registry for all textures used by the renderer.
+///
+/// Maintains the external input textures, the framebuffer output
+/// textures and ShaderToy keyboard texture. Guarantees that each
+/// logical input name maps to exactly one GPU texture instance.
+///
+/// Framebuffer outputs are exposed as textures using a
+/// double-buffered ("ping-pong") naming convention based on
+/// appending "0" or "1" to the render pass name, e.g.:
+///
+/// Buffer A0 / Buffer A1
+/// Buffer B0 / Buffer B1
+/// .
+/// .
+/// .
+/// Cubemap A0 / Cubemap A1
+///
+/// This allows passes to safely read previous-frame results.
 pub struct TextureManager {
     map: HashMap<String, Texture>,
+    keyboard_texture: Option<Texture>,
+    // index = row * 256 + keycode
+    keyboard_state: [u8; KEYBOARD_TEXTURE_WIDTH * KEYBOARD_TEXTURE_HEIGHT],
 }
 
 impl TextureManager {
     pub fn new() -> Self {
-        let map = HashMap::new();
-
-        Self { map }
+        Self {
+            map: HashMap::new(),
+            keyboard_texture: None,
+            keyboard_state: [0; KEYBOARD_TEXTURE_WIDTH * KEYBOARD_TEXTURE_HEIGHT],
+        }
     }
 
+    /// Returns the OpenGL texture ID associated with an input name.
     pub fn id(&self, name: &str) -> Option<GLuint> {
-        if let Some(texture) = self.map.get(name) {
-            return Some(texture.id);
-        }
-        None
+        self.map.get(name).map(|t| t.id)
     }
 
-    pub fn update_frame_number(&mut self, name: &str, frame_number: u32) -> Option<u32> {
-        if let Some(texture) = self.map.get_mut(name) {
-            let current_frame_number = texture.frame_number;
-            texture.frame_number = frame_number;
-            return Some(current_frame_number);
-        }
-        None
+    pub fn keyboard_id(&self) -> Option<GLuint> {
+        self.keyboard_texture.as_ref().map(|t| t.id)
     }
 
-    pub fn load(&mut self, passes: &Vec<RenderPass>) {
+    /// Loads textures required by the render pipeline.
+    ///
+    /// Performs three passes:
+    /// 1. Creates keyboard texture if any pass requires it.
+    /// 2. Loads external input textures (deduplicated).
+    /// 3. Registers framebuffer outputs as named textures.
+    pub fn load(&mut self, passes: &[RenderPass]) {
+        if self.keyboard_texture.is_none() {
+            let uses_keyboard = passes.iter().any(|pass| {
+                pass.inputs()
+                    .iter()
+                    .filter_map(|opt| opt.as_ref())
+                    .any(|input| input._type == InputType::Keyboard)
+            });
+            if uses_keyboard {
+                self.keyboard_texture =
+                    Some(Texture::new(create_keyboard_texture(), InputType::Keyboard));
+            }
+        }
+
+        let assets_dir = assets_dir();
+
+        // Load external textures and register pass outputs
         for pass in passes {
             for input in pass.inputs().iter().filter_map(|opt| opt.as_ref()) {
+                // Texture key uniquely identifies texture + vertical flip state.
+                // Prevents duplicate GPU uploads.
                 let key = input.name.clone()
                     + if input.vflip
                         && matches!(input._type, InputType::Texture | InputType::Cubemap)
@@ -76,9 +133,11 @@ impl TextureManager {
                     };
                 if !input.name.is_empty()
                     && input._type != InputType::Misc
+                    && input._type != InputType::Keyboard
                     && !self.map.contains_key(&key)
                 {
-                    let assets_dir = assets_dir();
+                    // Determine whether any pass requests mipmapped sampling
+                    // for this texture before loading it.
                     let build_mipmaps = passes.iter().any(|pass| {
                         pass.inputs()
                             .iter()
@@ -156,6 +215,18 @@ impl TextureManager {
             } else {
                 pass.name()
             };
+
+            // Register framebuffer outputs as textures using a ping-pong scheme.
+            //
+            // Each render pass owns two framebuffers:
+            //
+            // - "<PassName>0": Previous frame output
+            // - "<PassName>1": Current frame output
+            //
+            // The renderer alternates between them every frame to avoid
+            // reading from a texture that is simultaneously being written.
+            // This enables feedback effects where a pass samples its own
+            // result from the previous frame.
             self.map.insert(
                 name.to_string() + "0",
                 Texture::new(pass.framebuffers()[0].texture(), InputType::Misc),
@@ -166,8 +237,55 @@ impl TextureManager {
             );
         }
     }
+
+    /// Uploads keyboard state to the ShaderToy-compatible keyboard texture.
+    pub fn update_keyboard_texture(&mut self, data: &KeyboardData) {
+        let Some(tex) = &self.keyboard_texture else {
+            return;
+        };
+
+        let (row0, rest) = self.keyboard_state.split_at_mut(KEYBOARD_TEXTURE_WIDTH);
+        let (row1, row2) = rest.split_at_mut(KEYBOARD_TEXTURE_WIDTH);
+
+        for i in 0..KEYBOARD_TEXTURE_WIDTH {
+            row0[i] = 255 * data.keydown()[i] as u8;
+            row1[i] = 255 * data.keypressed()[i] as u8;
+            row2[i] = 255 * data.toggled()[i] as u8;
+        }
+
+        unsafe {
+            gl::BindTexture(gl::TEXTURE_2D, tex.id);
+            gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
+            gl::TexSubImage2D(
+                gl::TEXTURE_2D,
+                0,
+                0,
+                0,
+                KEYBOARD_TEXTURE_WIDTH as i32,
+                KEYBOARD_TEXTURE_HEIGHT as i32,
+                gl::RED,
+                gl::UNSIGNED_BYTE,
+                self.keyboard_state.as_ptr() as *const _,
+            );
+        }
+
+        // keypressed row must be cleared after upload because
+        // ShaderToy treats it as a one-frame pulse
+        self.clear_keypressed();
+    }
+
+    /// Clears one-frame keypress state after GPU upload.
+    fn clear_keypressed(&mut self) {
+        let keypressed_start = KEYBOARD_TEXTURE_WIDTH;
+        let keypressed_end = 2 * KEYBOARD_TEXTURE_WIDTH;
+        self.keyboard_state[keypressed_start..keypressed_end].fill(0);
+    }
 }
 
+/// Returns the directory containing bundled texture assets.
+///
+/// Uses XDG data directory when available and falls back
+/// to the current working directory.
 fn assets_dir() -> PathBuf {
     dirs::data_local_dir()
         .map(|mut path| {
@@ -186,6 +304,10 @@ fn assets_dir() -> PathBuf {
         })
 }
 
+/// Loads a cubemap texture from a horizontally stacked image.
+///
+/// Expected layout:
+/// +X | -X | +Y | -Y | +Z | -Z
 fn load_cubemap_texture(path: PathBuf, build_mipmaps: bool) -> GLuint {
     const CUBEMAP_NUM_FACES: usize = 6;
 
@@ -207,9 +329,11 @@ fn load_cubemap_texture(path: PathBuf, build_mipmaps: bool) -> GLuint {
             gl::RGB,
             gl::UNSIGNED_BYTE,
             data as *const _,
-        );
+        )
     };
 
+    // Fallback ensures shader execution continues even if
+    // asset loading fails
     let fallback = || {
         unsafe { gl::TexStorage2D(gl::TEXTURE_CUBE_MAP, 1, gl::RGB8, 1, 1) };
 
@@ -244,8 +368,8 @@ fn load_cubemap_texture(path: PathBuf, build_mipmaps: bool) -> GLuint {
                     gl::RGB8,
                     face_size.width() as i32,
                     face_size.height() as i32,
-                );
-            }
+                )
+            };
 
             for i in 0..CUBEMAP_NUM_FACES {
                 let x_offset = i as u32 * face_size.width();
@@ -271,6 +395,9 @@ fn load_cubemap_texture(path: PathBuf, build_mipmaps: bool) -> GLuint {
     texture_id
 }
 
+/// Loads a 2D texture with optional vertical flip and mipmaps.
+///
+/// Automatically selects internal format based on image channels.
 fn load_2d_texture(path: PathBuf, vflip: bool, build_mipmaps: bool) -> GLuint {
     let mut texture_id = 0;
 
@@ -279,30 +406,32 @@ fn load_2d_texture(path: PathBuf, vflip: bool, build_mipmaps: bool) -> GLuint {
         gl::BindTexture(gl::TEXTURE_2D, texture_id);
     }
 
-    let define_texture = |internal_format: GLenum, format: GLenum, size: Size, data: *const u8| unsafe {
+    let define_texture = |internal_format: GLenum, format: GLenum, size: Size, data: *const u8| {
         let num_mipmap_levels = if build_mipmaps {
             (size.width().max(size.height()) as f32).log2().floor() as i32 + 1
         } else {
             1
         };
-        gl::TexStorage2D(
-            gl::TEXTURE_2D,
-            num_mipmap_levels,
-            internal_format,
-            size.width() as i32,
-            size.height() as i32,
-        );
-        gl::TexSubImage2D(
-            gl::TEXTURE_2D,
-            0,
-            0,
-            0,
-            size.width() as i32,
-            size.height() as i32,
-            format,
-            gl::UNSIGNED_BYTE,
-            data as *const _,
-        );
+        unsafe {
+            gl::TexStorage2D(
+                gl::TEXTURE_2D,
+                num_mipmap_levels,
+                internal_format,
+                size.width() as i32,
+                size.height() as i32,
+            );
+            gl::TexSubImage2D(
+                gl::TEXTURE_2D,
+                0,
+                0,
+                0,
+                size.width() as i32,
+                size.height() as i32,
+                format,
+                gl::UNSIGNED_BYTE,
+                data as *const _,
+            );
+        }
     };
 
     match image::open(path.as_path()) {
@@ -334,6 +463,10 @@ fn load_2d_texture(path: PathBuf, vflip: bool, build_mipmaps: bool) -> GLuint {
     texture_id
 }
 
+/// Loads a 3D texture encoded as a horizontal strip of square slices.
+///
+/// Image layout:
+/// [slice0][slice1][slice2]...
 fn load_3d_texture(path: PathBuf, build_mipmaps: bool) -> GLuint {
     let mut texture_id = 0;
 
@@ -342,22 +475,24 @@ fn load_3d_texture(path: PathBuf, build_mipmaps: bool) -> GLuint {
         gl::BindTexture(gl::TEXTURE_3D, texture_id);
     }
 
-    let fallback = || unsafe {
+    let fallback = || {
         let fallback_data: [u8; 4] = [0, 0, 0, 0];
-        gl::TexStorage3D(gl::TEXTURE_3D, 1, gl::RGBA8, 1, 1, 1);
-        gl::TexSubImage3D(
-            gl::TEXTURE_3D,
-            0,
-            0,
-            0,
-            0,
-            1,
-            1,
-            1,
-            gl::RGBA,
-            gl::UNSIGNED_BYTE,
-            fallback_data.as_ptr() as *const _,
-        );
+        unsafe {
+            gl::TexStorage3D(gl::TEXTURE_3D, 1, gl::RGBA8, 1, 1, 1);
+            gl::TexSubImage3D(
+                gl::TEXTURE_3D,
+                0,
+                0,
+                0,
+                0,
+                1,
+                1,
+                1,
+                gl::RGBA,
+                gl::UNSIGNED_BYTE,
+                fallback_data.as_ptr() as *const _,
+            );
+        }
     };
 
     if let Ok(img) = image::open(path.as_path()) {
@@ -380,8 +515,8 @@ fn load_3d_texture(path: PathBuf, build_mipmaps: bool) -> GLuint {
                     slice_size as i32,
                     slice_size as i32,
                     depth as i32,
-                );
-            }
+                )
+            };
 
             for z in 0..depth {
                 let x_offset = z * slice_size;
@@ -401,8 +536,8 @@ fn load_3d_texture(path: PathBuf, build_mipmaps: bool) -> GLuint {
                         gl::RGBA,
                         gl::UNSIGNED_BYTE,
                         slice_img.as_ptr() as *const _,
-                    );
-                }
+                    )
+                };
             }
         } else {
             fallback();
@@ -413,6 +548,33 @@ fn load_3d_texture(path: PathBuf, build_mipmaps: bool) -> GLuint {
 
     if build_mipmaps {
         unsafe { gl::GenerateMipmap(gl::TEXTURE_3D) };
+    }
+
+    texture_id
+}
+
+/// Creates the ShaderToy keyboard input texture.
+///
+/// Uses single-channel R8 format and nearest sampling.
+fn create_keyboard_texture() -> GLuint {
+    let mut texture_id = 0;
+
+    unsafe {
+        gl::GenTextures(1, &mut texture_id);
+        gl::BindTexture(gl::TEXTURE_2D, texture_id);
+
+        gl::TexStorage2D(
+            gl::TEXTURE_2D,
+            1,
+            gl::R8,
+            KEYBOARD_TEXTURE_WIDTH as i32,
+            KEYBOARD_TEXTURE_HEIGHT as i32,
+        );
+
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
     }
 
     texture_id

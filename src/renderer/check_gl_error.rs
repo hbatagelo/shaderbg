@@ -3,9 +3,19 @@
 // https://github.com/hbatagelo/shaderbg
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! OpenGL debug output integration (debug builds only).
+//!
+//! Enables the `GL_KHR_debug`/`GL_ARB_debug_output` extension and
+//! installs a debug message callback that forwards driver messages
+//! to the application logger.
+
 #[cfg(debug_assertions)]
 use {gl::types::*, owo_colors::OwoColorize};
 
+/// Enables OpenGL debug output and installs the debug message callback.
+///
+/// Must be called after a valid OpenGL context has been made current.
+/// Has no effect if the debug extension is unsupported.
 #[cfg(debug_assertions)]
 pub fn setup_opengl_debugging() {
     if supports_debug_extension() {
@@ -25,8 +35,16 @@ pub fn setup_opengl_debugging() {
     }
 }
 
+/// Returns `true` if the current OpenGL context exposes a debug output extension.
 #[cfg(debug_assertions)]
 fn supports_debug_extension() -> bool {
+    let mut flags = 0;
+    unsafe { gl::GetIntegerv(gl::CONTEXT_FLAGS, &mut flags) };
+
+    if flags & gl::CONTEXT_FLAG_DEBUG_BIT as i32 != 0 {
+        return true;
+    }
+
     let mut num_extensions = 0;
     unsafe { gl::GetIntegerv(gl::NUM_EXTENSIONS, &mut num_extensions) };
 
@@ -42,6 +60,12 @@ fn supports_debug_extension() -> bool {
     false
 }
 
+/// OpenGL debug message callback.
+///
+/// Maps OpenGL debug severity levels to application log levels.
+/// Notification messages are ignored to reduce log noise.
+///
+/// Note: may be invoked from driver-managed threads.
 #[cfg(debug_assertions)]
 extern "system" fn gl_debug_callback(
     source: GLenum,
@@ -52,6 +76,10 @@ extern "system" fn gl_debug_callback(
     message: *const GLchar,
     _user_param: *mut std::ffi::c_void,
 ) {
+    if severity == gl::DEBUG_SEVERITY_NOTIFICATION {
+        return;
+    }
+
     let source_str = match source {
         gl::DEBUG_SOURCE_API => "API",
         gl::DEBUG_SOURCE_WINDOW_SYSTEM => "WINDOW_SYSTEM",
@@ -79,15 +107,32 @@ extern "system" fn gl_debug_callback(
         gl::DEBUG_SEVERITY_HIGH => "HIGH",
         gl::DEBUG_SEVERITY_MEDIUM => "MEDIUM",
         gl::DEBUG_SEVERITY_LOW => "LOW",
-        gl::DEBUG_SEVERITY_NOTIFICATION => "NOTIFICATION",
         _ => "UNKNOWN",
     };
 
     let msg = unsafe { std::ffi::CStr::from_ptr(message).to_string_lossy() };
-    if severity != gl::DEBUG_SEVERITY_NOTIFICATION {
-        log::debug!(
-            "{} source={source_str}, type={type_str}, id={id}, severity={severity_str}, message={msg}",
-            "[GL DEBUG CALLBACK]".white().bold()
-        );
+
+    let binding = "[GL DEBUG]".white();
+    let prefix = binding.bold();
+
+    macro_rules! log_gl {
+        ($level:ident) => {
+            log::$level!(
+                "{} source={}, type={}, id={}, severity={}, message={}",
+                prefix,
+                source_str,
+                type_str,
+                id,
+                severity_str,
+                msg
+            )
+        };
+    }
+
+    match severity {
+        gl::DEBUG_SEVERITY_HIGH => log_gl!(error),
+        gl::DEBUG_SEVERITY_MEDIUM => log_gl!(warn),
+        gl::DEBUG_SEVERITY_LOW => log_gl!(info),
+        _ => log_gl!(debug),
     }
 }

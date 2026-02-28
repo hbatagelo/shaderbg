@@ -8,6 +8,7 @@ mod cli;
 mod drm;
 mod frame_controller;
 mod geometry;
+mod keyboard_controller;
 mod mouse_controller;
 mod preset;
 mod renderer;
@@ -18,7 +19,7 @@ pub const APP_NAME: &str = "shaderbg";
 pub const APP_ABOUT: &str = "Shader wallpaper utility for Wayland";
 pub const APP_AUTHOR: &str = "Harlen Batagelo, hbatagelo@gmail.com";
 pub const APP_ID: &str = "com.github.hbatagelo.shaderbg";
-pub const APP_SEMVER: &str = "1.1.0";
+pub const APP_SEMVER: &str = "1.2.0";
 pub const GL_VERSION: (i32, i32) = (4, 2);
 
 fn main() -> gtk::glib::ExitCode {
@@ -26,11 +27,11 @@ fn main() -> gtk::glib::ExitCode {
         eprintln!("Failed to initialize logging: {err}");
     }
 
-    let (preset, preset_file, show_overlay) = match cli::parse_args() {
-        Ok(v) => v,
-        Err(cli::CliError::InvalidInput(err)) => {
-            log::warn!("{err}. Using default settings.");
-            (preset::Preset::with_serde_defaults(), None, true)
+    let config = match cli::parse_args() {
+        Ok(cfg) => cfg,
+        Err(cli::CliError::InvalidInput(warn)) => {
+            log::warn!("{warn}. Using default settings.");
+            cli::CliConfig::default()
         }
         Err(err) => {
             eprintln!("{err}");
@@ -38,5 +39,5 @@ fn main() -> gtk::glib::ExitCode {
         }
     };
 
-    app::run(preset, preset_file, show_overlay)
+    app::run(config)
 }

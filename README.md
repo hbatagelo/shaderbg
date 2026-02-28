@@ -6,29 +6,37 @@
 
 Shader wallpaper utility for Wayland.
 
-<img src="demo.gif" alt="ShaderBG on Sway" width="800">
+<img src="teaser_bubbles.gif" alt="ShaderBG on Sway" width="800">
 
 <sup>[Colorful underwater bubbles II](https://www.shadertoy.com/view/mlBSWc) on [Sway](https://swaywm.org/)</sup>
 
-ShaderBG is a wallpaper tool that renders shaders as live wallpapers in Wayland compositors that support the [wlr-layer-shell](https://wayland.app/protocols/wlr-layer-shell-unstable-v1) protocol. Shaders can be chosen from a built-in set, imported from [ShaderToy](https://www.shadertoy.com/) JSON exports, or customized via TOML.
+<img src="teaser_quake.gif" alt="ShaderBG on Cosmic" width="800">
 
-On compositors that don't support wlr-layer-shell, ShaderBG falls back to a regular window application.
+<sup>[Quake Intro](https://www.shadertoy.com/view/lsKfWd) on [Cosmic](https://system76.com/cosmic/)</sup>
+
+ShaderBG is a wallpaper tool that runs GLSL shaders as interactive live wallpapers on Wayland compositors supporting the [wlr-layer-shell](https://wayland.app/protocols/wlr-layer-shell-unstable-v1) protocol.
+
+Shaders can be selected from a built-in collection, imported from [ShaderToy](https://www.shadertoy.com/) JSON exports, or customized via TOML configuration files.
+
+On compositors that do not support wlr-layer-shell, ShaderBG falls back to a top-level window.
 
 See the `shaderbg(1)` man page for usage instructions.
 
 ## Key features
 
-* Import from ShaderToy
+* Import shaders from ShaderToy
 * Multi-monitor support
+* Mouse and keyboard input
 * Configuration hot reload
-* Slideshow effect with cross fading between frames
-* Anti-aliasing (SSAA)
+* Slideshow mode with cross-fade transitions
+* Configurable render scaling (downsampling / upsampling)
+* Layout modes (stretch, centered, repeat, mirrored repeat)
 
 ## Installation
 
 ### From packages
 
-Debian (`.deb`), Fedora (`.rpm`), and Arch (`.pkg`) packages for x86-64 are available on the [releases page](https://github.com/hbatagelo/shaderbg/releases).
+Arch (`.pkg`), Debian (`.deb`), and Fedora (`.rpm` packages for x86\_64 are available on the [releases page](https://github.com/hbatagelo/shaderbg/releases).
 
 <details>
 <summary>Verify package checksums</summary>
@@ -53,7 +61,7 @@ gpg --decrypt SHA256SUMS.asc | sha256sum -c --ignore-missing
 2. Install dependencies
 
    <details>
-   <summary>Arch and derivatives</summary>
+   <summary>Arch</summary>
 
    ```sh
    sudo pacman -S base-devel gtk4-layer-shell
@@ -62,7 +70,7 @@ gpg --decrypt SHA256SUMS.asc | sha256sum -c --ignore-missing
    </details>
 
    <details>
-   <summary>Debian and derivatives</summary>
+   <summary>Debian/Ubuntu</summary>
 
    ```sh
    sudo apt install build-essential libgtk-4-dev libgtk4-layer-shell-dev
@@ -71,7 +79,7 @@ gpg --decrypt SHA256SUMS.asc | sha256sum -c --ignore-missing
    </details>
 
    <details>
-   <summary>Fedora and derivatives</summary>
+   <summary>Fedora</summary>
 
    ```sh
    sudo dnf install gcc-c++ gtk4-devel libepoxy-devel gtk4-layer-shell-devel
@@ -79,7 +87,7 @@ gpg --decrypt SHA256SUMS.asc | sha256sum -c --ignore-missing
 
    </details>
 
-   If GTK4 Layer Shell is unavailable in your distribution, [build it from source](https://github.com/wmww/gtk4-layer-shell?tab=readme-ov-file#building-from-source).
+   If GTK4 Layer Shell is unavailable in your distribution's repositories, [build it from source](https://github.com/wmww/gtk4-layer-shell?tab=readme-ov-file#building-from-source).
 
 3. Clone this repository
    ```sh
@@ -105,7 +113,7 @@ gpg --decrypt SHA256SUMS.asc | sha256sum -c --ignore-missing
 
 ## Usage
 
-Run with no arguments to randomly select a shader from the presets:
+Run without arguments to randomly select a shader from the presets:
 
 ```sh
 shaderbg
@@ -119,7 +127,7 @@ Import from ShaderToy JSON export:
 shaderbg <json_file>
 ```
 
-* The JSON file is the response from the API request `https://www.shadertoy.com/api/v1/shaders/<shader_id>?key=<api_key>`, where `<shader_id>` is the ID of the shader set to 'public + api' in ShaderToy, and `<api_key>` is the API key. See <https://www.shadertoy.com/howto> for more information on how to use the ShaderToy API.
+* The JSON file is the response from the API request `https://www.shadertoy.com/api/v1/shaders/<shader_id>?key=<api_key>`, where `<shader_id>` is the ID of the shader set to "public + api" visibility in ShaderToy, and `<api_key>` is the API key. See <https://www.shadertoy.com/howto> for more information on how to use the ShaderToy API.
 * The imported shader is added to the presets as `<shader_id>.toml` and overwrites any previous file with the same name.
 
 You can also load a custom preset file:
@@ -128,24 +136,33 @@ You can also load a custom preset file:
 shaderbg <toml_file>
 ```
 
-An example TOML preset corresponding to <https://www.shadertoy.com/view/wfjcR3> is given below:
+An example TOML preset corresponding to <https://www.shadertoy.com/view/wfjcR3> is shown below:
 
 ```toml
 id = "wfjcR3"
 name = "Spiral Wobble"
 username = "hbatagelo"
-description = "A simple wobbling spiral texture effect with multi-pass rendering."
+description = """
+A simple wobbling spiral texture effect with multi-pass rendering.
+
+Use up/down arrow keys to zoom in/out."""
 
 # 'Common' shader
 [common]
 shader = """
+#define UP_KEYCODE   38
+#define DOWN_KEYCODE 40
+
+float keyDown(sampler2D kb, float key) {
+    return texture(kb, vec2((float(key) + 0.5) / 256.0, 0.0)).r;
+}
+
 vec2 rotate2D(vec2 uv, float angle) {
     return vec2(
         uv.x * cos(angle) - uv.y * sin(angle),
         uv.x * sin(angle) + uv.y * cos(angle)
     );
-}
-"""
+}"""
 
 # 'Buffer A' pass
 [buffer_a]
@@ -154,17 +171,31 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec2 uv = fragCoord / iResolution.xy;
     float aspect = iResolution.x / iResolution.y;
 
+    // Keyboard input
+    float up   = keyDown(iChannel2, UP_KEYCODE);
+    float down = keyDown(iChannel2, DOWN_KEYCODE);
+
+    // Read previous frame (rgb = color, a = log(zoom))
+    vec4 prev = texture(iChannel0, uv);
+
+    // Update zoom
+    if (iFrame == 0) prev.a = 0.0;
+    prev.a += (up - down) * iTimeDelta;
+    prev.a = clamp(prev.a, log(0.2), log(4.0));
+
+    // Spiral coordinates
     float spirals = 1.0 + 3.0 * (0.5 + 0.5 * sin(iTime * 0.5));
-    vec2 centeredUV = (uv - 0.5) * vec2(aspect, 1.0);
+    vec2 centeredUV = (uv - 0.5) * vec2(aspect, 1.0) / exp(prev.a);
     float angle = sin(iTime + length(centeredUV) * spirals);
     vec2 rotatedUV = rotate2D(centeredUV, angle) / vec2(aspect, 1.0) + 0.5;
 
+    // Temporal feedback
     vec4 curColor = texture(iChannel1, rotatedUV);
-    vec4 prevColor = texture(iChannel0, uv);
+    float feedback = exp(-15.0 * iTimeDelta);
+    vec3 color = mix(curColor.rgb, prev.rgb, feedback);
 
-    fragColor = mix(curColor, prevColor, 0.5);
-}
-"""
+    fragColor = vec4(color, prev.a);
+}"""
 
 [buffer_a.input_0]
 type = "misc"
@@ -180,25 +211,27 @@ wrap = "repeat"
 filter = "mipmap"
 vflip = true
 
+[buffer_a.input_2]
+type = "keyboard"
+
 # 'Image' pass
 [image]
 shader = """
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     vec2 uv = fragCoord / iResolution.xy;
-    vec4 color = texture(iChannel0, uv);
+    vec3 color = texture(iChannel0, uv).rgb;
     float vignette = 1.0 - length(uv - 0.5) * 0.7;
-    fragColor = color * vignette;
-}
-"""
+    fragColor = vec4(color * vignette, 1.0);
+}"""
 
 [image.input_0]
 type = "misc"
 name = "Buffer A"
-wrap = "repeat"
+wrap = "clamp"
 filter = "nearest"
 vflip = true
 
-# Other rendering settings
+# Other settings
 resolution_scale = 1.0
 filter_mode = "linear"
 time_scale = 1.0
@@ -212,9 +245,9 @@ crossfade_overlap_ratio = 0.0
 
 If the TOML file is not found, ShaderBG will automatically look for it in the presets directory.
 
-The shader is reloaded automatically when its TOML file is edited while in use.
+The shader is automatically reloaded when its TOML file is edited while in use.
 
-Whenever a shader is (re)loaded, a text overlay containing the shader name and author is displayed for a few seconds. Use `--no-overlay` to hide the overlay.
+Whenever a shader is loaded or reloaded, a text overlay containing the shader name and author is displayed for a few seconds. Use `--no-overlay` to hide the overlay.
 
 ## ShaderToy support
 
@@ -232,7 +265,7 @@ Inputs:
 * \[x] Buffers A..D
 * \[x] Cubemap
 * \[x] Custom textures
-* \[ ] Keyboard
+* \[x] Keyboard
 * \[ ] Microphone
 * \[x] Mouse
 * \[ ] Music
@@ -252,7 +285,7 @@ The preset file supports the following keys:
 
 ### Render and animation settings
 
-* `resolution_scale` (**float**): Scale factor to scale the resolution of the rendered frame. Use <1 to downsample, >1 to upsample (e.g., 2 for 2x SSAA, 4 for 4x SSAA, etc). Default is `1.0` (no scaling).
+* `resolution_scale` (**float**): Scale factor to scale the resolution of the rendered frame. Use values <1 to downsample and >1 to upsample (e.g., 2 for 2x SSAA, 4 for 4x SSAA, etc). Default is `1.0` (no scaling).
 * `filter_mode` (**string**): Filtering mode when blitting the rendered frame onto the screen. Allowed values:
   * `"nearest"`: nearest neighbor filtering
   * `"linear"`: bilinear filtering (default)
@@ -298,6 +331,7 @@ The preset file supports the following keys:
       * `"texture"`
       * `"cubemap"`
       * `"volume"`
+      * `"keyboard"`
     * `name` (**string**): Input name. Allowed input names depend on the value of `type`. If `type` is `"misc"`, `name` must be a buffer name such as `"Buffer A"`, `"Buffer B"`, `"Buffer C"`, `"Buffer D"`, or `"Cubemap A"`. The following table shows the complete set:
       | `type`      | Allowed values for `name` |
       |-------------|---------------------------|
@@ -305,12 +339,16 @@ The preset file supports the following keys:
       | `"texture"` | Path to a jpeg/png file, or a predefined ShaderToy texture name: `"Abstract 1"`, `"Abstract 2"`, `"Abstract 3"`, `"Bayer"`, `"Blue Noise"`, `"Font 1"`, `"Gray Noise Medium"`, `"Gray Noise Small"`, `"Lichen"`, `"London"`, `"Nyancat"`, `"Organic 1"`, `"Organic 2"`, `"Organic 3"`, `"Organic 4"`, `"Pebbles"`, `"RGBA Noise Medium"`, `"RGBA Noise Small"`, `"Rock Tiles"`, `"Rusty Metal"`, `"Stars"`, or `"Wood"`. |
       | `"cubemap"` | Path to a jpeg/png file, or a predefined ShaderToy cubemap name: `"Forest"`, `"Forest Blurred"`, `"St. Peter's Basilica"`, `"St. Peter's Basilica Blurred"`, `"Uffizi Gallery"`, or `"Uffizi Gallery Blurred"`. If a file path is specified, it is assumed that the file contains the textures of each cube side laid out in a row in the order +x, -x, +y, -y, +z, -z. |
       | `"volume"`  | Path to a jpeg/png file, or a predefined ShaderToy volume name: `"Grey Noise3D"` or `"RGBA Noise3D"`. When a file path is specified, it is assumed that the file contains the 2D slices of the volume laid out in a row, from slice 0 to slice N-1, where N is the square root of the volume size. |
+      | `"keyboard"`  | Value is ignored. |
     * `wrap` (**string**): Wrap mode: `"clamp"` (default) or `"repeat"`.
-    * `filter`(**string**): Filtering mode: `"linear"` (default), `"nearest"`, or `"mipmap"`.
+    * `filter` (**string**): Filtering mode: `"linear"` (default), `"nearest"`, or `"mipmap"`.
     * `vflip` (**boolean**): Vertical flip: `true` or `false` (default).
 
 ## License
 
-ShaderBG is licensed under the terms of GPLv3. See [LICENSE](https://github.com/hbatagelo/shaderbg/blob/main/LICENSE) for the full text.
+ShaderBG is licensed under the terms of the GPLv3. See [LICENSE](https://github.com/hbatagelo/shaderbg/blob/main/LICENSE) for the full text.
 
-The predefined textures have been downloaded and adapted from ShaderToy.
+Presets distributed with this project are released under CC0 ([Creative Commons CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/)).
+
+All textures originate from the Shadertoy media library and are included solely for shader compatibility.
+They are not part of ShaderBG, remain the property of their respective copyright holders, and are not relicensed by this project.

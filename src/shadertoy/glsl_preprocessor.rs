@@ -3,6 +3,11 @@
 // https://github.com/hbatagelo/shaderbg
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! ShaderToy GLSL preprocessor.
+//!
+//! Performs the main source transformation required to convert
+//! ShaderToy GLSL ES shaders into desktop OpenGL–compatible GLSL.
+
 use regex::Regex;
 use std::collections::HashMap;
 
@@ -10,9 +15,16 @@ use crate::renderer::shader::ShaderError;
 
 use super::{glsl_preprocessor::ShaderError::ShaderPreprocess, glsl_utils::strip_comments};
 
+/// Represents the state of a conditional compilation block (#if...#endif).
 enum BranchState {
+    /// The preprocessor is in a branch where the condition was false.
+    /// It's searching for a subsequent `#else` or `#elif` that might be true.
     Searching,
+    /// The preprocessor is in a branch where the condition was true.
+    /// Code in this branch should be processed.
     Active,
+    /// A true branch has already been processed, so subsequent `#else`
+    /// branches should be ignored.
     Done,
 }
 
@@ -24,18 +36,32 @@ enum Token {
     RParen,
 }
 
+/// Represents a defined macro.
 #[derive(Debug, Clone)]
 struct MacroDef {
+    /// A list of parameter names for a function-like macro.
+    /// `None` if it's a simple object-like macro.
     params: Option<Vec<String>>,
+
+    /// The string that will replace the macro invocation.
     body: String,
 }
 
+/// Preprocessor.
 struct GlslPreprocessor {
+    /// Map of defined macro names to their definitions.
     defines: HashMap<String, MacroDef>,
+
+    /// Nested conditional blocks.
     if_stack: Vec<BranchState>,
+
+    /// Current line number for error reporting.
     line_number: usize,
 }
 
+/// Returns the GLSL code with preprocessor directives evaluated and macros expanded.
+/// This is NOT a full-fledged preprocessor - directives such as `pragma`, `extension`,
+/// `version`, and `line` are stripped. Predefined macros are not expanded.
 pub fn preprocess(source: &str) -> Result<String, ShaderError> {
     let mut preprocessor = GlslPreprocessor::new();
     preprocessor.run(source)
@@ -50,24 +76,28 @@ impl GlslPreprocessor {
         }
     }
 
+    /// Checks if the current line of code is inside an active conditional block.
     fn is_active(&self) -> bool {
         self.if_stack
             .last()
             .is_none_or(|state| matches!(state, BranchState::Active))
     }
 
+    /// Preprocesses a GLSL source string.
     fn run(&mut self, source: &str) -> Result<String, ShaderError> {
         self.defines.clear();
         self.if_stack.clear();
         self.line_number = 0;
 
         let source = source
-            .replace("\r\n", "\n")
-            .replace("\n\r", "\n")
-            .replace("\r", "\n");
+            .replace("\r\n", "\n") // CR+LF to LF
+            .replace("\n\r", "\n") // LF+CR to LF
+            .replace("\r", "\n"); // Remaining CR to LF
 
+        // Splice lines
         let source = source.replace("\\\n", "");
 
+        // Strip all comments
         let source_no_comments = strip_comments(&source);
 
         let mut output = String::new();
@@ -77,7 +107,9 @@ impl GlslPreprocessor {
             self.line_number += 1;
             let trimmed_line = line.trim();
 
+            // Handle preprocessor directives
             if trimmed_line.starts_with('#') {
+                // Expand buffer before processing any directive
                 if self.is_active() && !active_buffer.is_empty() {
                     let expanded = self.expand_macros(&active_buffer);
                     output.push_str(&expanded);
@@ -106,6 +138,7 @@ impl GlslPreprocessor {
                                 return Err(self.handle_error(trimmed_line));
                             }
                         }
+                        // Ignore these directives
                         "pragma" | "extension" | "version" | "line" => {}
                         _ => {
                             return Err(ShaderPreprocess(
@@ -115,12 +148,16 @@ impl GlslPreprocessor {
                         }
                     }
                 }
-            } else if self.is_active() {
+            }
+            // Handle regular code lines
+            else if self.is_active() {
+                // Accumulate the line (with a newline) for later expansion
                 active_buffer.push_str(line);
                 active_buffer.push('\n');
             }
         }
 
+        // Expand any remaining active buffer
         if !active_buffer.is_empty() {
             let expanded = self.expand_macros(&active_buffer);
             output.push_str(&expanded);
@@ -129,9 +166,13 @@ impl GlslPreprocessor {
         Ok(output)
     }
 
+    /// Parses and stores a macro definition.
     fn handle_define(&mut self, line: &str) {
+        // Regex for function-like macros: #define NAME(p1,p2) BODY
+        // Note: There must be no whitespace between the macro name and the '('
         let func_re =
             Regex::new(r"#\s*define\s+([a-zA-Z_][a-zA-Z_0-9]*)\(([^)]*)\)\s*(.*)").unwrap();
+        // Regex for object-like macros: #define NAME BODY
         let obj_re = Regex::new(r"#\s*define\s+([a-zA-Z_][a-zA-Z_0-9]*)\s*(.*)").unwrap();
 
         if let Some(caps) = func_re.captures(line) {
@@ -160,6 +201,7 @@ impl GlslPreprocessor {
         }
     }
 
+    /// Removes a macro definition.
     fn handle_undef(&mut self, line: &str) {
         let after_hash = line[1..].trim_start();
         let parts: Vec<&str> = after_hash.split_whitespace().collect();
@@ -168,6 +210,7 @@ impl GlslPreprocessor {
         }
     }
 
+    /// Handles #ifdef directive.
     fn handle_ifdef(&mut self, line: &str) {
         let after_hash = line[1..].trim_start();
         let parts: Vec<&str> = after_hash.split_whitespace().collect();
@@ -179,11 +222,13 @@ impl GlslPreprocessor {
                     self.if_stack.push(BranchState::Searching);
                 }
             } else {
+                // Nested inside an inactive block
                 self.if_stack.push(BranchState::Done);
             }
         }
     }
 
+    /// Handles #ifndef directive.
     fn handle_ifndef(&mut self, line: &str) {
         let after_hash = line[1..].trim_start();
         let parts: Vec<&str> = after_hash.split_whitespace().collect();
@@ -195,17 +240,21 @@ impl GlslPreprocessor {
                     self.if_stack.push(BranchState::Searching);
                 }
             } else {
+                // Nested inside an inactive block
                 self.if_stack.push(BranchState::Done);
             }
         }
     }
 
+    /// Handles #if directives by evaluating the conditional expression.
     fn handle_if(&mut self, line: &str) {
         if !self.is_active() {
+            // If we are already in an inactive branch, any nested #if is also inactive
             self.if_stack.push(BranchState::Done);
             return;
         }
 
+        // Extract the expression part of the #if directive
         let after_hash = line[1..].trim_start();
         let condition_str = after_hash.strip_prefix("if").unwrap_or("").trim();
 
@@ -216,6 +265,7 @@ impl GlslPreprocessor {
         }
     }
 
+    /// Handles #elif directive.
     fn handle_elif(&mut self, line: &str) {
         let condition_is_true = match self.if_stack.last() {
             Some(BranchState::Searching) => {
@@ -235,21 +285,25 @@ impl GlslPreprocessor {
         }
     }
 
+    /// Handles #else directive.
     fn handle_else(&mut self) {
         if let Some(top) = self.if_stack.last_mut() {
             match top {
-                BranchState::Searching => *top = BranchState::Active,
-                BranchState::Active => *top = BranchState::Done,
-                BranchState::Done => {}
+                BranchState::Searching => *top = BranchState::Active, // #if was false, so #else is active
+                BranchState::Active => *top = BranchState::Done, // #if was true, so #else is inactive
+                BranchState::Done => {} // Already handled a true branch, do nothing
             }
         }
     }
 
+    /// Handles #endif directive.
     fn handle_endif(&mut self) {
         self.if_stack.pop();
     }
 
+    /// Handles #error directive.
     fn handle_error(&self, line: &str) -> ShaderError {
+        // Extract the error message after #error
         let after_hash = line[1..].trim_start();
         let error_message = after_hash.strip_prefix("error").unwrap_or("").trim();
 
@@ -266,7 +320,9 @@ impl GlslPreprocessor {
         ShaderPreprocess(message, self.line_number)
     }
 
+    /// Evaluates a preprocessor conditional expression.
     fn evaluate_if_expr(&self, expr: &str) -> bool {
+        // First, replace all `defined(MACRO)` calls with "1" or "0"
         let defined_re = Regex::new(
             r"defined\s*\(\s*([a-zA-Z_][a-zA-Z_0-9]*)\s*\)|defined\s+([a-zA-Z_][a-zA-Z_0-9]*)",
         )
@@ -286,9 +342,11 @@ impl GlslPreprocessor {
             })
             .to_string();
 
+        // Expand any macros in the condition
         let expanded_expr = self.expand_macros(&replaced_expr);
         let expr_no_ws = expanded_expr.replace(char::is_whitespace, "");
 
+        // Tokenize the expression
         let tokens = match self.tokenize(&expr_no_ws) {
             Ok(tokens) => tokens,
             Err(_) => return false,
@@ -315,8 +373,11 @@ impl GlslPreprocessor {
                     let mut num_str = String::new();
                     num_str.push(c);
 
+                    // Check for hex (0x or 0X) first
                     if c == '0' && matches!(chars.peek(), Some('x') | Some('X')) {
+                        // Consume 'x' or 'X'
                         num_str.push(chars.next().unwrap());
+                        // Consume hex digits
                         while let Some(&next_char) = chars.peek() {
                             if next_char.is_ascii_hexdigit() {
                                 num_str.push(chars.next().unwrap());
@@ -324,14 +385,18 @@ impl GlslPreprocessor {
                                 break;
                             }
                         }
+                        // Parse as hex, skip the "0x" prefix
                         if num_str.len() > 2 {
                             let num = i64::from_str_radix(&num_str[2..], 16).map_err(|_| ())?;
                             tokens.push(Token::Number(num));
                         } else {
-                            return Err(());
+                            return Err(()); // Invalid hex number
                         }
-                    } else if c == '0' && chars.peek().is_some_and(|&ch| ('0'..='7').contains(&ch))
+                    }
+                    // Check for octal (starts with 0 but followed by digits 0-7)
+                    else if c == '0' && chars.peek().is_some_and(|&ch| ('0'..='7').contains(&ch))
                     {
+                        // Consume octal digits only
                         while let Some(&next_char) = chars.peek() {
                             if ('0'..='7').contains(&next_char) {
                                 num_str.push(chars.next().unwrap());
@@ -339,13 +404,16 @@ impl GlslPreprocessor {
                                 break;
                             }
                         }
+                        // Parse as octal, skip the leading "0"
                         let num = if num_str.len() > 1 {
                             i64::from_str_radix(&num_str[1..], 8).map_err(|_| ())?
                         } else {
-                            0
+                            0 // Just "0"
                         };
                         tokens.push(Token::Number(num));
-                    } else {
+                    }
+                    // Regular decimal number
+                    else {
                         while let Some(&next_char) = chars.peek() {
                             if next_char.is_ascii_digit() {
                                 num_str.push(chars.next().unwrap());
@@ -709,6 +777,8 @@ impl GlslPreprocessor {
         }
     }
 
+    /// Expands all macros in a given line of code.
+    /// This function will repeatedly scan the line to handle nested macros.
     fn expand_macros(&self, line: &str) -> String {
         fn is_identifier_character(c: u8) -> bool {
             c.is_ascii_alphanumeric() || c == b'_'
@@ -721,6 +791,8 @@ impl GlslPreprocessor {
 
             for (name, def) in &self.defines {
                 for (start_index, _) in current_line.match_indices(name) {
+                    // Check if this match is earlier than any other valid match we've found so far.
+                    // This is key to ensure we always process the leftmost macro first.
                     if earliest_expansion.is_some()
                         && start_index >= earliest_expansion.as_ref().unwrap().0
                     {
@@ -728,6 +800,7 @@ impl GlslPreprocessor {
                     }
                     let end_index = start_index + name.len();
 
+                    // Ensure it's a whole word to avoid replacing parts of other identifiers
                     let is_start_boundary = start_index == 0
                         || !is_identifier_character(current_line.as_bytes()[start_index - 1]);
                     let is_end_boundary = end_index == current_line.len()
@@ -735,19 +808,23 @@ impl GlslPreprocessor {
 
                     if is_start_boundary && is_end_boundary {
                         if let Some(params) = &def.params {
+                            // It's a function-like macro, try to parse its arguments
                             if let Some((args_end, args)) =
                                 self.parse_macro_args(&current_line, end_index, params.len())
                             {
                                 let expanded = self.replace_params(&def.body, params, &args);
+                                // This is a valid, earlier expansion. Store it
                                 earliest_expansion = Some((start_index, args_end, expanded));
                             }
                         } else {
+                            // It's an object-like macro. This is a valid, earlier expansion. Store it
                             earliest_expansion = Some((start_index, end_index, def.body.clone()));
                         }
                     }
                 }
             }
 
+            // After checking all defined macros, if we found a candidate, apply the earliest one
             if let Some((start, end, replacement)) = earliest_expansion {
                 current_line.replace_range(start..end, &replacement);
                 expanded_in_pass = true;
@@ -760,6 +837,7 @@ impl GlslPreprocessor {
         current_line
     }
 
+    /// Parses the arguments of a function-like macro invocation.
     fn parse_macro_args(
         &self,
         line: &str,
@@ -768,6 +846,7 @@ impl GlslPreprocessor {
     ) -> Option<(usize, Vec<String>)> {
         let mut chars = line[start_offset..].char_indices().peekable();
 
+        // Skip whitespace
         while let Some((_, c)) = chars.peek() {
             if !c.is_whitespace() {
                 break;
@@ -775,6 +854,7 @@ impl GlslPreprocessor {
             chars.next();
         }
 
+        // Expect an opening parenthesis
         if chars.next()?.1 != '(' {
             return None;
         }
@@ -784,6 +864,7 @@ impl GlslPreprocessor {
         let mut paren_level = 1;
         let mut end_offset = 0;
 
+        // Handle case of function with no arguments e.g. `foo()`
         if arg_count == 0 {
             let mut final_char_i = 0;
             for (i, c) in chars {
@@ -794,7 +875,7 @@ impl GlslPreprocessor {
                 }
                 if !c.is_whitespace() {
                     return None;
-                }
+                } // Should only be whitespace between ()
             }
             if paren_level == 0 {
                 return Some((start_offset + final_char_i + 1, args));
@@ -838,15 +919,18 @@ impl GlslPreprocessor {
             return body.to_string();
         }
 
+        // Prioritize longer matches
         let mut sorted_params = params.to_vec();
         sorted_params.sort_by_key(|b| std::cmp::Reverse(b.len()));
 
+        // Match any parameter as whole word
         let pattern_parts: Vec<String> = sorted_params
             .iter()
             .map(|p| format!(r"\b{}\b", regex::escape(p)))
             .collect();
         let pattern = pattern_parts.join("|");
 
+        // Replace all parameters
         if let Ok(re) = Regex::new(&pattern) {
             re.replace_all(body, |caps: &regex::Captures| {
                 let matched = caps.get(0).unwrap().as_str();
@@ -858,11 +942,12 @@ impl GlslPreprocessor {
             })
             .to_string()
         } else {
-            body.to_string()
+            body.to_string() // Fallback if regex fails
         }
     }
 }
 
+/// Extracts the directive name, assuming the line starts with #
 fn get_directive_name(line: &str) -> Option<&str> {
     let after_hash = line[1..].trim_start();
     after_hash.split_whitespace().next()

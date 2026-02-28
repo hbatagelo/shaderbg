@@ -3,6 +3,14 @@
 // https://github.com/hbatagelo/shaderbg
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! Command-line interface and startup configuration.
+//!
+//! Responsible for parsing command-line arguments and loading the
+//! initial [`Preset`].
+//!
+//! Produces a [`CliConfig`] describing the runtime configuration used
+//! to initialize the application.
+
 use std::{
     env, fs, io,
     path::{Path, PathBuf},
@@ -13,6 +21,7 @@ use thiserror::Error;
 
 use crate::{preset::*, *};
 
+/// Errors that may occur during CLI parsing or startup initialization.
 #[derive(Debug, Error)]
 pub enum CliError {
     #[error("Failed to initialize user data directory")]
@@ -25,10 +34,43 @@ pub enum CliError {
     InvalidInput(String),
 }
 
-pub fn parse_args() -> Result<(Preset, Option<PathBuf>, bool), CliError> {
+/// Result of command-line parsing.
+///
+/// Describes the runtime configuration chosen at startup.
+#[derive(Debug)]
+pub struct CliConfig {
+    /// Loaded preset configuration.
+    ///
+    /// May change after initialization due to hot-reloading.
+    pub preset: Preset,
+
+    /// Path to the preset file used to initialize the application.
+    ///
+    /// `None` when a generated or default preset is used.
+    pub preset_path: Option<PathBuf>,
+
+    /// Enables the on-screen shader information overlay.
+    pub show_overlay: bool,
+}
+
+impl Default for CliConfig {
+    fn default() -> Self {
+        Self {
+            preset: Preset::with_serde_defaults(),
+            preset_path: None,
+            show_overlay: true,
+        }
+    }
+}
+
+/// Parses command-line arguments and resolves the initial preset.
+///
+/// - No arguments: load a random preset.
+/// - One argument: load a TOML preset or ShaderToy JSON export.
+pub fn parse_args() -> Result<CliConfig, CliError> {
     ensure_user_data_dir()?;
 
-    let presets_dir = presets_dir();
+    let presets_directory = presets_dir();
 
     let matches = Command::new(APP_NAME)
         .author(APP_AUTHOR)
@@ -52,7 +94,9 @@ pub fn parse_args() -> Result<(Preset, Option<PathBuf>, bool), CliError> {
     let show_overlay = !matches.get_flag("no-overlay");
 
     let (preset, preset_path) = match matches.get_one::<PathBuf>("file") {
-        None => load_preset_from_directory(&presets_dir)?,
+        // No arguments: use a random preset from the presets directory
+        None => load_preset_from_directory(&presets_directory)?,
+        // One argument: treat as a file (TOML or JSON)
         Some(path) => load_preset_from_file_or_json(path)?,
     };
 
@@ -60,22 +104,30 @@ pub fn parse_args() -> Result<(Preset, Option<PathBuf>, bool), CliError> {
         log::info!("Loaded {}", path.display());
     }
 
-    Ok((preset, preset_path, show_overlay))
+    Ok(CliConfig {
+        preset,
+        preset_path,
+        show_overlay,
+    })
 }
 
+/// Loads a preset from either an explicit filesystem path,
+/// or a filename located inside the presets directory.
+///
+/// File type is determined by extension when possible,
+/// otherwise TOML and JSON loaders are attempted sequentially.
 fn load_preset_from_file_or_json(file: &Path) -> Result<(Preset, Option<PathBuf>), CliError> {
     let resolved = if file.exists() {
         file.to_path_buf()
     } else {
-        let candidate = presets_dir().join(file);
-        if candidate.exists() {
-            candidate
-        } else {
-            return Err(CliError::InvalidInput(format!(
-                "File not found: {}",
-                file.display()
-            )));
-        }
+        presets_dir().join(file)
+    };
+
+    if !resolved.exists() {
+        return Err(CliError::InvalidInput(format!(
+            "File not found: {}",
+            file.display()
+        )));
     };
 
     match resolved.extension().and_then(|s| s.to_str()) {
@@ -87,7 +139,19 @@ fn load_preset_from_file_or_json(file: &Path) -> Result<(Preset, Option<PathBuf>
     }
 }
 
+/// Ensures the per-user application data directory exists.
+///
+/// On first run:
+/// - Creates `$XDG_DATA_HOME/<APP_NAME>`
+/// - Copies bundled default assets from:
+///     - `/usr/share/<APP_NAME>` (system install), or
+///     - `/app/share/<APP_NAME>` (Flatpak sandbox)
+///
+/// This allows writable user configuration while keeping
+/// packaged defaults read-only.
 fn ensure_user_data_dir() -> std::io::Result<()> {
+    // Resolve user data directory according to XDG Base Directory spec.
+    // Falls back to current working directory when unavailable.
     let user_data_dir = dirs::data_local_dir()
         .or_else(|| std::env::current_dir().ok())
         .ok_or_else(|| {
@@ -103,9 +167,12 @@ fn ensure_user_data_dir() -> std::io::Result<()> {
         log::info!("Creating {:?}", &app_data_dir);
         fs::create_dir_all(&app_data_dir)?;
 
+        // Determine the system-wide data directory based on the environment
         let system_data_dir = if env::var("FLATPAK_ID").is_ok() {
+            // Flatpak sandbox
             Path::new("/app/share")
         } else {
+            // Standard system installation
             Path::new("/usr/share")
         }
         .join(APP_NAME);
@@ -121,6 +188,12 @@ fn ensure_user_data_dir() -> std::io::Result<()> {
     Ok(())
 }
 
+/// Recursively copies directory contents, overwriting existing files.
+///
+/// Existing files are replaced unconditionally.
+/// Directory structure is created as needed.
+///
+/// Intended for bootstrapping user data from packaged defaults.
 fn copy_recursively_overwriting(
     source: impl AsRef<Path>,
     destination: impl AsRef<Path>,
