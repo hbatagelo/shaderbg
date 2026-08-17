@@ -164,7 +164,7 @@ fn ensure_user_data_dir() -> std::io::Result<()> {
     let app_data_dir = user_data_dir.join(APP_NAME);
 
     if !app_data_dir.exists() {
-        log::info!("Creating {:?}", &app_data_dir);
+        log::info!("Creating {:?}", app_data_dir);
         fs::create_dir_all(&app_data_dir)?;
 
         // Determine the system-wide data directory based on the environment
@@ -182,7 +182,7 @@ fn ensure_user_data_dir() -> std::io::Result<()> {
         if system_data_dir.exists() {
             copy_recursively_overwriting(system_data_dir, &app_data_dir)?;
         } else {
-            log::warn!("No source data directory found: {:?}", &system_data_dir);
+            log::warn!("No source data directory found: {:?}", system_data_dir);
         }
     }
     Ok(())

@@ -169,6 +169,11 @@ impl FrameController {
         }
     }
 
+    /// Returns true if the controller is still in the warm-up phase.
+    pub fn is_warming_up(&self) -> bool {
+        self.frame_number < INITIAL_FRAMES_TO_SKIP
+    }
+
     /// Executes rendering for one monitor.
     ///
     /// A single logical frame may span multiple monitors. Only the first monitor renders new content, while the
@@ -186,7 +191,7 @@ impl FrameController {
         self.advance_monitor();
 
         // Always perform blitting for monitors after initial frames
-        if self.frame_number >= INITIAL_FRAMES_TO_SKIP {
+        if !self.is_warming_up() {
             self.perform_crossfade_blit(&blit_callback);
         } else {
             unsafe { gl::Clear(gl::COLOR_BUFFER_BIT) };
@@ -291,10 +296,16 @@ impl FrameController {
         let elapsed_since_render = Instant::now().duration_since(self.last_frame_render_time);
         self.crossfade.update(elapsed_since_render);
 
-        let crossfade_t = if self.frame_number.is_multiple_of(2) {
-            1.0 - self.crossfade.value()
-        } else {
+        let crossfade_value = if self.crossfade.is_enabled() {
             self.crossfade.value()
+        } else {
+            1.0 // Snap to the new frame if crossfade is disabled
+        };
+
+        let crossfade_t = if self.frame_number.is_multiple_of(2) {
+            1.0 - crossfade_value
+        } else {
+            crossfade_value
         };
 
         blit_callback(crossfade_t);

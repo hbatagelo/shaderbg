@@ -458,17 +458,28 @@ impl Renderer {
     /// Depending on configuration, this may perform crossfade blending,
     /// apply scaling or layout mapping, generate mipmaps,
     /// or perform a direct framebuffer blit.
-    pub fn blit(&self, crossfade_t: f32) {
+    pub fn blit(&self, crossfade_t: f32, bg: [f32; 4], gl_offset: Offset) {
         let crossfade_enabled = self.blit_uniform_locations.i_crossfade_t > 0;
         let mipmapping_enabled = self.viewport_settings.filter == FilterMode::Mipmap;
 
-        let framebuffer_size = self.passes.last().unwrap().framebuffers()[0].size();
+        let active_fb_idx = if crossfade_enabled {
+            0
+        } else {
+            crossfade_t.round() as usize
+        };
+        let framebuffer_size = self.passes.last().unwrap().framebuffers()[active_fb_idx].size();
         let origin = match self.viewport_settings.mapping {
             LayoutMode::Center => {
+                // Span multiple monitors seamlessly
+                let scale = self.framebuffer_scale;
                 Point::new(
-                    self.viewport_settings.size.width() as i32 - framebuffer_size.width() as i32,
-                    self.viewport_settings.size.height() as i32 - framebuffer_size.height() as i32,
-                ) * 0.5
+                    ((self.screen_size.width() as f32 * 0.5 - gl_offset.dx() as f32)
+                        * (1.0 - scale))
+                        .round() as i32,
+                    ((self.screen_size.height() as f32 * 0.5 - gl_offset.dy() as f32)
+                        * (1.0 - scale))
+                        .round() as i32,
+                )
             }
             _ => Point::default(),
         };
@@ -491,6 +502,7 @@ impl Renderer {
                     self.viewport_settings.size.width() as i32,
                     self.viewport_settings.size.height() as i32,
                 );
+                gl::ClearColor(bg[0], bg[1], bg[2], bg[3]);
                 gl::Clear(gl::COLOR_BUFFER_BIT);
             }
         }
@@ -546,7 +558,7 @@ impl Renderer {
                 gl::ActiveTexture(gl::TEXTURE0);
                 gl::BindTexture(
                     gl::TEXTURE_2D,
-                    self.passes.last().unwrap().framebuffers()[0].texture(),
+                    self.passes.last().unwrap().framebuffers()[active_fb_idx].texture(),
                 );
                 set_texture_parameters();
 
@@ -576,7 +588,7 @@ impl Renderer {
                 _ => gl::LINEAR,
             };
 
-            self.passes.last().unwrap().framebuffers()[0].blit_to(
+            self.passes.last().unwrap().framebuffers()[active_fb_idx].blit_to(
                 self.original_fbo_id,
                 origin,
                 size,

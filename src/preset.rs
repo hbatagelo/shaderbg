@@ -29,11 +29,11 @@ use crate::{app::*, *};
 
 #[derive(Debug, Error)]
 pub enum PresetError {
-    #[error("I/O error")]
+    #[error("I/O error: {0}")]
     Io(#[from] io::Error),
-    #[error("TOML parse error")]
+    #[error("TOML parse error: {0}")]
     TomlParse(#[from] toml::de::Error),
-    #[error("JSON parse error")]
+    #[error("JSON parse error: {0}")]
     JsonParse(#[from] serde_json::Error),
     #[error("Failed to import from JSON: {0}")]
     Import(String),
@@ -112,26 +112,30 @@ pub enum LayoutMode {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
 pub struct Input {
     /// Type of input resource.
-    #[serde(default, rename = "type")]
+    #[serde(
+        default,
+        rename = "type",
+        deserialize_with = "validators::fallback_to_default"
+    )]
     pub _type: InputType,
     /// Identifier or path of the input resource.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "validators::fallback_to_default")]
     pub name: String,
     /// Texture coordinate wrapping mode used when sampling.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "validators::fallback_to_default")]
     pub wrap: WrapMode,
     /// Filtering mode applied during texture sampling.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "validators::fallback_to_default")]
     pub filter: FilterMode,
     /// Whether to vertically flip the input.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "validators::fallback_to_default")]
     pub vflip: bool,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct Pass {
     /// Shader source code.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "validators::fallback_to_default")]
     pub shader: String,
     /// iChannel0 input.
     #[serde(default)]
@@ -150,16 +154,16 @@ pub struct Pass {
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 pub struct Preset {
     /// Shader ID.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "validators::fallback_to_default")]
     pub id: String,
     /// Shader name.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "validators::fallback_to_default")]
     pub name: String,
     /// Shader username.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "validators::fallback_to_default")]
     pub username: String,
     // Shader description.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "validators::fallback_to_default")]
     pub description: String,
     /// Scaling factor for the frame resolution.
     #[serde(
@@ -174,27 +178,33 @@ pub struct Preset {
     )]
     pub time_scale: f64,
     /// Constant offset added to `iTime` shader uniform.
-    #[serde(default, with = "humantime_serde")]
+    #[serde(default, deserialize_with = "validators::fallback_duration")]
     pub time_offset: Duration,
     /// Minimum time between frames.
-    #[serde(default, with = "humantime_serde")]
+    #[serde(default, deserialize_with = "validators::fallback_duration")]
     pub interval_between_frames: Duration,
     /// How the bounds of the virtual screen are calculated.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "validators::fallback_to_default")]
     pub screen_bounds_policy: ScreenBoundsPolicy,
     /// Monitor selection using DRM connector names.
     #[serde(default = "defaults::monitor_selection")]
     pub monitor_selection: Vec<String>,
     /// How the framebuffer is laid out on the screen.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "validators::fallback_to_default")]
     pub layout_mode: LayoutMode,
     /// Filtering mode when scaling the framebuffer.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "validators::fallback_to_default")]
     pub filter_mode: FilterMode,
     /// Controls smooth frame transitions through cross fading.
     /// (0.0 = no overlap, 1.0 = always transitioning)
     #[serde(default, deserialize_with = "validators::clamp_crossfade")]
     pub crossfade_overlap_ratio: f64,
+    /// RGBA background color for letterboxing and underscan.
+    #[serde(
+        default = "defaults::background_color",
+        deserialize_with = "validators::fallback_background_color"
+    )]
+    pub background_color: [f32; 4],
     /// "Common" pass (shader-only).
     #[serde(default)]
     pub common: Option<Pass>,
@@ -283,6 +293,11 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
         .trim()
         .to_string()
     }
+
+    /// Default underscan color.
+    pub fn background_color() -> [f32; 4] {
+        [0.0, 0.0, 0.0, 1.0]
+    }
 }
 
 /// Validation functions applied during deserialization.
@@ -291,12 +306,83 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 mod validators {
     use super::*;
 
+    /// Parses a value from TOML, falling back to the default if the type is wrong.
+    pub fn fallback_to_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de> + Default + Serialize,
+    {
+        // Deserialize into a generic TOML value first to prevent type mismatches
+        // from aborting the entire struct deserialization.
+        let toml_value = match toml::Value::deserialize(deserializer) {
+            Ok(val) => val,
+            Err(_) => return Ok(T::default()),
+        };
+
+        match T::deserialize(toml_value) {
+            Ok(valid_value) => Ok(valid_value),
+            Err(err) => {
+                let default = T::default();
+                let default_str = serde_json::to_string(&default)
+                    .unwrap_or_default()
+                    .trim_matches('"')
+                    .to_string();
+                log::warn!(
+                    "Invalid option value ({err}). Using default ({:#?}).",
+                    default_str
+                );
+                Ok(default)
+            }
+        }
+    }
+
+    pub fn fallback_duration<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let toml_value = match toml::Value::deserialize(deserializer) {
+            Ok(val) => val,
+            Err(_) => return Ok(Duration::default()),
+        };
+
+        match humantime_serde::deserialize(toml_value) {
+            Ok(valid_value) => Ok(valid_value),
+            Err(err) => {
+                let default = Duration::default();
+                log::warn!("Invalid duration ({err}). Using default ({:#?}).", default);
+                Ok(default)
+            }
+        }
+    }
+
+    pub fn fallback_background_color<'de, D>(deserializer: D) -> Result<[f32; 4], D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let toml_value = match toml::Value::deserialize(deserializer) {
+            Ok(val) => val,
+            Err(_) => return Ok(super::defaults::background_color()),
+        };
+
+        match <[f32; 4]>::deserialize(toml_value) {
+            Ok(valid_value) => Ok(valid_value),
+            Err(err) => {
+                let default = super::defaults::background_color();
+                log::warn!(
+                    "Invalid background color ({err}). Using default ({:#?}).",
+                    default
+                );
+                Ok(default)
+            }
+        }
+    }
+
     /// Ensures `resolution_scale` is non-negative.
     pub fn clamp_resolution_scale<'de, D>(deserializer: D) -> Result<f32, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let value = f32::deserialize(deserializer)?;
+        let value = fallback_to_default::<D, f32>(deserializer)?;
         Ok(value.max(0.0))
     }
 
@@ -305,7 +391,7 @@ mod validators {
     where
         D: Deserializer<'de>,
     {
-        let value = f64::deserialize(deserializer)?;
+        let value = fallback_to_default::<D, f64>(deserializer)?;
         Ok(value.max(0.0))
     }
 
@@ -314,7 +400,7 @@ mod validators {
     where
         D: Deserializer<'de>,
     {
-        let value = f64::deserialize(deserializer)?;
+        let value = fallback_to_default::<D, f64>(deserializer)?;
         Ok(value.clamp(0.0, 1.0))
     }
 }

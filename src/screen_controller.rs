@@ -62,7 +62,7 @@ impl ScreenController {
             .any(|s| s == "*");
 
         // Select monitors based on connector names
-        let selected_monitors = all_monitors
+        let mut selected_monitors = all_monitors
             .iter()
             .filter(|monitor| {
                 monitor
@@ -79,6 +79,14 @@ impl ScreenController {
             })
             .cloned()
             .collect::<Vec<_>>();
+
+        // Fallback to all monitors if none of the selected ones were found
+        if selected_monitors.is_empty() && !all_monitors.is_empty() {
+            log::warn!(
+                "None of the selected monitors were found. Falling back to all available monitors."
+            );
+            selected_monitors = all_monitors.clone();
+        }
 
         let screen_bounds_policy = app_data.cli_config.preset.screen_bounds_policy;
         let screen_bounds = match screen_bounds_policy {

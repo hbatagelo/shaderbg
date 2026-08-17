@@ -179,12 +179,12 @@ impl GlslPreprocessor {
             let name = caps.get(1).unwrap().as_str().to_string();
             let params_str = caps.get(2).unwrap().as_str();
             let params: Vec<String> = if params_str.is_empty() {
-                vec![]
+                Vec::new()
             } else {
                 params_str
                     .split(',')
                     .map(|p| p.trim().to_string())
-                    .collect()
+                    .collect::<Vec<_>>()
             };
             let body = caps.get(3).unwrap().as_str().trim().to_string();
             self.defines.insert(
@@ -895,12 +895,10 @@ impl GlslPreprocessor {
                     }
                 }
                 '(' => paren_level += 1,
-                ',' => {
-                    if paren_level == 1 {
-                        args.push(current_arg.trim().to_string());
-                        current_arg.clear();
-                        continue;
-                    }
+                ',' if paren_level == 1 => {
+                    args.push(current_arg.trim().to_string());
+                    current_arg.clear();
+                    continue;
                 }
                 _ => {}
             }

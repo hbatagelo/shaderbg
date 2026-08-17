@@ -19,7 +19,7 @@ pub const APP_NAME: &str = "shaderbg";
 pub const APP_ABOUT: &str = "Shader wallpaper utility for Wayland";
 pub const APP_AUTHOR: &str = "Harlen Batagelo, hbatagelo@gmail.com";
 pub const APP_ID: &str = "com.github.hbatagelo.shaderbg";
-pub const APP_SEMVER: &str = "1.2.0";
+pub const APP_SEMVER: &str = "1.3.0";
 pub const GL_VERSION: (i32, i32) = (4, 2);
 
 fn main() -> gtk::glib::ExitCode {

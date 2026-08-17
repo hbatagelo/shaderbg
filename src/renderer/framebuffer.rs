@@ -74,6 +74,11 @@ impl Framebuffer {
 
         check_framebuffer_status();
 
+        unsafe {
+            gl::ClearColor(0.0, 0.0, 0.0, 1.0);
+            gl::Clear(gl::COLOR_BUFFER_BIT);
+        }
+
         let (resolve_fbo, resolve_texture) = if msaa_enabled {
             create_msaa_resolve_target(size)
         } else {
@@ -322,6 +327,12 @@ fn create_msaa_resolve_target(size: Size) -> (GLuint, GLuint) {
     };
 
     check_framebuffer_status();
+
+    unsafe {
+        gl::ClearColor(0.0, 0.0, 0.0, 1.0);
+        gl::Clear(gl::COLOR_BUFFER_BIT);
+    }
+
     (fbo, texture)
 }
 

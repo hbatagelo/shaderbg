@@ -146,6 +146,16 @@ description = """
 A simple wobbling spiral texture effect with multi-pass rendering.
 
 Use up/down arrow keys to zoom in/out."""
+resolution_scale = 1.0
+filter_mode = "linear"
+time_scale = 1.0
+time_offset = "0s"
+screen_bounds_policy = "all_monitors"
+monitor_selection = ["*"]
+layout_mode = "stretch"
+interval_between_frames = "0s"
+crossfade_overlap_ratio = 0.0
+background_color = [0, 0, 0, 1]
 
 # 'Common' shader
 [common]
@@ -230,17 +240,6 @@ name = "Buffer A"
 wrap = "clamp"
 filter = "nearest"
 vflip = true
-
-# Other settings
-resolution_scale = 1.0
-filter_mode = "linear"
-time_scale = 1.0
-time_offset = "0s"
-screen_bounds_policy = "all_monitors"
-monitor_selection = ["*"]
-layout_mode = "stretch"
-interval_between_frames = "0s"
-crossfade_overlap_ratio = 0.0
 ```
 
 If the TOML file is not found, ShaderBG will automatically look for it in the presets directory.
@@ -295,6 +294,7 @@ The preset file supports the following keys:
   * `"center"`: centers without scaling (may underscan)
   * `"repeat"`: tiles by repeating the frame
   * `"mirrored_repeat"`: tiles using mirror-repeat wrapping
+* `background_color` (**array of floats**): RGBA background color used for underscan (e.g., when `layout_mode` is `"center"` and `resolution_scale` < 1). Default is `[0.0, 0.0, 0.0, 1.0]` (opaque black).
 * `interval_between_frames` (**string**): Minimum time between frames. Use this to limit the frame rate and save energy (e.g., `"100ms"` to cap at 10 frames per second) or create a slideshow effect (e.g., `"60s"` to render a new frame each minute). Default is `"0s"` (non-throttled animation).
 * `crossfade_overlap_ratio` (**float**): Controls smooth frame transitions through cross fading, from 0 (no overlap; default) to 1 (always transitioning). Cross fading is enabled only if this setting and `interval_between_frames` are non-zero.
 

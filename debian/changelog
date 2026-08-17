@@ -1,3 +1,15 @@
+shaderbg (1.3.0) stable; urgency=low
+
+  * Add `background_color` option to configure the underscan color
+  * Log TOML parse errors with specific failure reasons and gracefully fall back to the defaults
+  * Clear framebuffers upon creation to prevent artifacts from uninitialized memory
+  * Render first frame immediately on throttled animations
+  * Vendor and patch `epoxy` to use the latest version of `gl_generator`
+  * Update to the latest dependencies
+  * Make `layout_mode="center"` span the global virtual desktop on multi-monitor setups (tiling is still per monitor)
+
+ -- Harlen Batagelo <hbatagelo@gmail.com>  Mon, 17 Ago 2026 15:00:00 -0300
+
 shaderbg (1.2.0) stable; urgency=low
 
   * Add keyboard support

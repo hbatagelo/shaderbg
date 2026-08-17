@@ -686,19 +686,42 @@ fn setup_animation_driver(app: &gtk::Application) {
         cross_fade(app);
     } else {
         // Throttled
-        let tick_callback = glib::clone!(
+        let bootstrap_callback = glib::clone!(
             #[weak]
             app,
             #[upgrade_or_panic]
             move || {
+                let app_data = get_data!(app, AppData, as_mut());
                 areas_queue_render(&app);
-                glib::ControlFlow::Continue
+
+                if app_data.frame_controller.is_warming_up() {
+                    // Keep firing the fast timer
+                    glib::ControlFlow::Continue
+                } else {
+                    // Warm-up is over. Spin up the throttled timer.
+                    let throttled_callback = glib::clone!(
+                        #[weak]
+                        app,
+                        #[upgrade_or_panic]
+                        move || {
+                            areas_queue_render(&app);
+                            glib::ControlFlow::Continue
+                        }
+                    );
+
+                    let source_id = glib::timeout_add_local(
+                        app_data.cli_config.preset.interval_between_frames,
+                        throttled_callback,
+                    );
+                    app_data.animation_timer = Some(source_id);
+
+                    // Stop the fast timer
+                    glib::ControlFlow::Break
+                }
             }
         );
-        let source_id = glib::timeout_add_local(
-            app_data.cli_config.preset.interval_between_frames,
-            tick_callback,
-        );
+        // Start the bootstrap phase with a fast repeating timer
+        let source_id = glib::timeout_add_local(Duration::from_millis(10), bootstrap_callback);
         app_data.animation_timer = Some(source_id);
     }
 }
@@ -954,7 +977,11 @@ fn on_render(area: &gtk::GLArea, gl_context: &gdk::GLContext) -> glib::Propagati
         |crossfade_t| {
             // Blit current area
             if let Some(renderer) = area_data.renderer.as_ref() {
-                renderer.blit(crossfade_t);
+                renderer.blit(
+                    crossfade_t,
+                    app_data.cli_config.preset.background_color,
+                    area_data.gl_offset,
+                );
             }
         },
     );
