@@ -167,8 +167,12 @@ fn ensure_user_data_dir() -> std::io::Result<()> {
         log::info!("Creating {:?}", app_data_dir);
         fs::create_dir_all(&app_data_dir)?;
 
-        // Determine the system-wide data directory based on the environment
-        let system_data_dir = if env::var("FLATPAK_ID").is_ok() {
+        // Determine the system-wide data directory based on the environment.
+        // Priority: compile-time override > Flatpak > FHS system install.
+        let system_data_dir = if let Some(dir) = option_env!("SHADERBG_SYSTEM_DATA_DIR") {
+            // Baked in at build time (e.g. Nix sets this to the store path)
+            Path::new(dir)
+        } else if env::var("FLATPAK_ID").is_ok() {
             // Flatpak sandbox
             Path::new("/app/share")
         } else {
