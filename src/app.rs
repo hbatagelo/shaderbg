@@ -339,10 +339,23 @@ fn create_layer_windows(app: &gtk::Application) {
 
         window.set_monitor(Some(monitor));
         app_data.areas.push(area);
+
+        if app_data.cli_config.preset.input_passthrough {
+            // Inert background (swaybg behavior): empty input region so all
+            // pointer events fall through to the desktop. Must be connected
+            // BEFORE present() — present() may realize the window synchronously.
+            window.connect_realize(|w| {
+                if let Some(surface) = w.surface() {
+                    surface.set_input_region(Some(&cairo::Region::create()));
+                }
+            });
+        }
+
         window.present();
 
-        // Create the companion transparent input-capture window for this monitor
-        create_input_window(app, monitor, gl_offset);
+        if !app_data.cli_config.preset.input_passthrough {
+            create_input_window(app, monitor, gl_offset);
+        }
     }
 }
 

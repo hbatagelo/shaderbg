@@ -162,7 +162,7 @@ pub struct Preset {
     /// Shader username.
     #[serde(default, deserialize_with = "validators::fallback_to_default")]
     pub username: String,
-    // Shader description.
+    /// Shader description.
     #[serde(default, deserialize_with = "validators::fallback_to_default")]
     pub description: String,
     /// Scaling factor for the frame resolution.
@@ -205,6 +205,23 @@ pub struct Preset {
         deserialize_with = "validators::fallback_background_color"
     )]
     pub background_color: [f32; 4],
+    /// If `true`, the wallpaper captures no input: no input-capture window is
+    /// created and the render surface gets an empty input region, so pointer
+    /// events fall through to the compositor's desktop (swaybg-like). Wayland
+    /// input regions are all-or-nothing, so this also disables hover tracking.
+    /// Default `true` prevents the input-capture behavior.
+    #[serde(
+        default = "defaults::default_true",
+        deserialize_with = "validators::fallback_to_true"
+    )]
+    pub input_passthrough: bool,
+
+    /// Report the live pointer position in `iMouse.xy` even when no button is
+    /// held (hover tracking). Default `false` keeps strict ShaderToy semantics
+    /// (`iMouse.xy` only follows drags).
+    #[serde(default, deserialize_with = "validators::fallback_to_true")]
+    pub track_pointer: bool,
+
     /// "Common" pass (shader-only).
     #[serde(default)]
     pub common: Option<Pass>,
@@ -298,6 +315,11 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
     pub fn background_color() -> [f32; 4] {
         [0.0, 0.0, 0.0, 1.0]
     }
+
+    /// Generic default for boolean options that default to `true`.
+    pub const fn default_true() -> bool {
+        true
+    }
 }
 
 /// Validation functions applied during deserialization.
@@ -373,6 +395,25 @@ mod validators {
                     default
                 );
                 Ok(default)
+            }
+        }
+    }
+
+    /// Parses a bool from TOML, falling back to `true` if the type is wrong.
+    pub fn fallback_to_true<'de, D>(deserializer: D) -> Result<bool, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let toml_value = match toml::Value::deserialize(deserializer) {
+            Ok(val) => val,
+            Err(_) => return Ok(super::defaults::default_true()),
+        };
+
+        match bool::deserialize(toml_value) {
+            Ok(valid_value) => Ok(valid_value),
+            Err(err) => {
+                log::warn!("Invalid boolean value ({err}). Using default (true).");
+                Ok(super::defaults::default_true())
             }
         }
     }

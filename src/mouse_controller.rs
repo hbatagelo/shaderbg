@@ -40,6 +40,9 @@ pub struct MouseController {
     /// Used to guarantee that multi-monitor rendering pipelines observe
     /// at least one frame where the click is reported as "just pressed".
     frames_since_pressed: usize,
+
+    /// Whether the pointer is currently over one of the input widgets.
+    pointer_inside: bool,
 }
 
 /// Raw mouse data formatted for ShaderToy's `iMouse` uniform.
@@ -64,6 +67,7 @@ impl MouseController {
             last_release_position: Point::default(),
             pressed: false,
             frames_since_pressed: 0,
+            pointer_inside: false,
         }
     }
 
@@ -90,6 +94,22 @@ impl MouseController {
                 mouse.current_position = Point::new(x + gl_offset.dx(), flipped_y + gl_offset.dy());
 
                 log::trace!("{} {:?}", "motion".white().bold(), mouse);
+            }
+        ));
+        motion_controller.connect_enter(glib::clone!(
+            #[weak(rename_to = app)]
+            self.app,
+            move |_, _, _| {
+                let app_data = get_data!(app, AppData, as_mut());
+                app_data.mouse_controller.pointer_inside = true;
+            }
+        ));
+        motion_controller.connect_leave(glib::clone!(
+            #[weak(rename_to = app)]
+            self.app,
+            move |_| {
+                let app_data = get_data!(app, AppData, as_mut());
+                app_data.mouse_controller.pointer_inside = false;
             }
         ));
         widget.add_controller(motion_controller);
@@ -145,6 +165,7 @@ impl MouseController {
             last_release_position: release,
             pressed,
             frames_since_pressed,
+            pointer_inside,
         } = &mut *self;
 
         let app_data = get_data!(app, AppData, as_mut());
@@ -160,7 +181,13 @@ impl MouseController {
             }
         } else {
             // Button released
-            [release.x(), release.y(), -press.x(), -press.y()]
+            if app_data.cli_config.preset.track_pointer && *pointer_inside {
+                [current.x(), current.y(), -press.x(), -press.y()]
+            } else if app_data.cli_config.preset.track_pointer {
+                [0, 0, 0, 0] // off-surface → shader sees "no mouse"
+            } else {
+                [release.x(), release.y(), -press.x(), -press.y()]
+            }
         };
 
         MouseData { raw }
