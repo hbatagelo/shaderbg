@@ -427,6 +427,10 @@ pub fn load_preset_from_directory(dir: &Path) -> Result<(Preset, Option<PathBuf>
         .filter(|p| p.extension() == Some(OsStr::new("toml")))
         .collect();
 
+    if toml_files.is_empty() {
+        return Err(PresetError::NoPresets);
+    }
+
     let chosen = toml_files
         .get(random_index(toml_files.len()))
         .ok_or(PresetError::NoPresets)?;
