@@ -555,7 +555,7 @@ fn setup_layer_shell(window: &gtk::ApplicationWindow) {
         .for_each(|&anchor| window.set_anchor(anchor, true));
 
     window.set_namespace(Some(APP_NAME));
-    window.set_exclusive_zone(-1);
+    window.set_exclusive_zone(0);
     window.set_keyboard_mode(KeyboardMode::None);
 }
 
@@ -569,7 +569,7 @@ fn setup_layer_shell(window: &gtk::ApplicationWindow) {
 /// [`KeyboardMode::OnDemand`] grants keyboard focus when the surface is clicked.
 fn setup_input_layer_shell(window: &gtk::ApplicationWindow) {
     window.init_layer_shell();
-    window.set_layer(Layer::Bottom);
+    window.set_layer(Layer::Background);
 
     [Edge::Left, Edge::Right, Edge::Top, Edge::Bottom]
         .iter()
