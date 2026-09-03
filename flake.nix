@@ -26,7 +26,13 @@
         {
           default = pkgs.mkShell {
             inputsFrom = [ self.packages.${system}.default ];
-            packages = with pkgs; [ rustfmt clippy rust-analyzer ];
+            packages = with pkgs; [
+              rustfmt
+              clippy
+              rust-analyzer
+              pandoc  # needed for md2man
+              groff # see above
+            ];
             env.RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
           };
         }
