@@ -25,6 +25,12 @@ shaderbg - Shader wallpaper utility for Wayland
 **--no-overlay**
 : Disable the shader information overlay display
 
+**--exclusive-zone** *PIXELS*
+: Override the layer-shell exclusive zone of the render window. Default is -1, or 0 on River
+
+**--input-layer** *LAYER*
+: Layer of the input-capture window: background, bottom, top, or overlay. Default is background, or bottom on COSMIC. Only has an effect when input passthrough is disabled
+
 **-h**, **--help**
 : Print help information and exit
 
@@ -53,7 +59,13 @@ shaderbg - Shader wallpaper utility for Wayland
 **shaderbg my-shader.toml --no-overlay**
 : Load preset without displaying the shader information overlay
 
+**shaderbg --input-layer bottom**
+: Run the input-capture window on the bottom layer instead of the default for the current compositor
+
 ## ENVIRONMENT
+
+**XDG_CURRENT_DESKTOP**
+: Used to auto-detect compositor-specific defaults (exclusive zone 0 on River, input window on the bottom layer on COSMIC)
 
 The application may use standard XDG environment variables for configuration directory location.
 
