@@ -156,6 +156,7 @@ layout_mode = "stretch"
 interval_between_frames = "0s"
 crossfade_overlap_ratio = 0.0
 background_color = [0, 0, 0, 1]
+input_passthrough = false
 
 # 'Common' shader
 [common]
@@ -310,6 +311,11 @@ The preset file supports the following keys:
   * `"selection_monitors"`: union of selected monitors (see also `monitor_selection`)
   * `"cloned"`: per-monitor isolation (clone mode)
 * `monitor_selection` (**array of strings**): Monitor selection using DRM connector names (e.g., `["HDMI-1", "HDMI-3"]`), or `"*"` (default) to select all available monitors.
+
+### Input settings
+
+* `input_passthrough` (**boolean**): When `true`, the wallpaper captures no input and pointer events fall through to the desktop (similar to swaybg). Mouse and keyboard interaction with the shader is disabled in this mode. Default is `true`.
+* `track_pointer` (**boolean**): When `true`, `iMouse.xy` follows the pointer position even when no mouse button is held (hover tracking). Default is `false`, in which case `iMouse.xy` only changes while dragging. Only has an effect when `input_passthrough` is `false`.
 
 ### Render passes
 
