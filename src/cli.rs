@@ -120,7 +120,7 @@ pub fn parse_args() -> Result<CliConfig, CliError> {
         .arg(
             Arg::new("exclusive-zone")
                 .long("exclusive-zone")
-                .value_name("PIXELS")
+                .value_name("ZONE")
                 .help("Exclusive zone of the render window [default: -1, or 0 on River]")
                 .value_parser(clap::value_parser!(i32))
                 .allow_negative_numbers(true),
@@ -129,7 +129,9 @@ pub fn parse_args() -> Result<CliConfig, CliError> {
             Arg::new("input-layer")
                 .long("input-layer")
                 .value_name("LAYER")
-                .help("Layer of the input-capture window [default: background, or bottom on COSMIC]")
+                .help(
+                    "Layer of the input-capture window [default: background, or bottom on COSMIC]",
+                )
                 .value_parser(clap::value_parser!(InputLayer)),
         )
         .after_help("Run with no arguments to use a random preset")
@@ -148,7 +150,6 @@ pub fn parse_args() -> Result<CliConfig, CliError> {
         .unwrap_or_else(default_input_layer);
 
     log::debug!("exclusive_zone={exclusive_zone}, input_layer={input_layer:?}");
-
 
     let (preset, preset_path) = match matches.get_one::<PathBuf>("file") {
         // No arguments: use a random preset from the presets directory
@@ -285,7 +286,11 @@ fn current_desktop() -> String {
 /// window behaves correctly everywhere else tested (Sway, Hyprland, Niri,
 /// Miriway, COSMIC).
 fn default_exclusive_zone() -> i32 {
-    if current_desktop().contains("river") { 0 } else { -1 }
+    if current_desktop().contains("river") {
+        0
+    } else {
+        -1
+    }
 }
 
 /// COSMIC does not grant focus to surfaces on the background layer, so the

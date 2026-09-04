@@ -25,7 +25,7 @@ shaderbg - Shader wallpaper utility for Wayland
 **--no-overlay**
 : Disable the shader information overlay display
 
-**--exclusive-zone** *PIXELS*
+**--exclusive-zone** *ZONE*
 : Override the layer-shell exclusive zone of the render window. Default is -1, or 0 on River
 
 **--input-layer** *LAYER*
