@@ -17,9 +17,30 @@ use std::{
 };
 
 use clap::{Arg, ArgAction, Command};
+use gtk4_layer_shell::Layer;
 use thiserror::Error;
 
 use crate::{preset::*, *};
+
+/// Layer-shell layer on which to place the input-capture window.
+#[derive(Copy, Clone, Debug, clap::ValueEnum)]
+pub enum InputLayer {
+    Background,
+    Bottom,
+    Top,
+    Overlay,
+}
+
+impl From<InputLayer> for Layer {
+    fn from(layer: InputLayer) -> Self {
+        match layer {
+            InputLayer::Background => Layer::Background,
+            InputLayer::Bottom => Layer::Bottom,
+            InputLayer::Top => Layer::Top,
+            InputLayer::Overlay => Layer::Overlay,
+        }
+    }
+}
 
 /// Errors that may occur during CLI parsing or startup initialization.
 #[derive(Debug, Error)]
@@ -51,6 +72,12 @@ pub struct CliConfig {
 
     /// Enables the on-screen shader information overlay.
     pub show_overlay: bool,
+
+    /// Exclusive zone of the render window. Default: -1, or 0 on River.
+    pub exclusive_zone: i32,
+
+    /// Layer of the input-capture window. Default: background, or bottom on COSMIC.
+    pub input_layer: Layer,
 }
 
 impl Default for CliConfig {
@@ -59,6 +86,8 @@ impl Default for CliConfig {
             preset: Preset::with_serde_defaults(),
             preset_path: None,
             show_overlay: true,
+            exclusive_zone: default_exclusive_zone(),
+            input_layer: default_input_layer(),
         }
     }
 }
@@ -88,10 +117,39 @@ pub fn parse_args() -> Result<CliConfig, CliError> {
                 .help("Disable the shader info overlay")
                 .action(ArgAction::SetTrue),
         )
+        .arg(
+            Arg::new("exclusive-zone")
+                .long("exclusive-zone")
+                .value_name("ZONE")
+                .help("Exclusive zone of the render window [default: -1, or 0 on River]")
+                .value_parser(clap::value_parser!(i32))
+                .allow_negative_numbers(true),
+        )
+        .arg(
+            Arg::new("input-layer")
+                .long("input-layer")
+                .value_name("LAYER")
+                .help(
+                    "Layer of the input-capture window [default: background, or bottom on COSMIC]",
+                )
+                .value_parser(clap::value_parser!(InputLayer)),
+        )
         .after_help("Run with no arguments to use a random preset")
         .get_matches();
 
     let show_overlay = !matches.get_flag("no-overlay");
+
+    let exclusive_zone = matches
+        .get_one::<i32>("exclusive-zone")
+        .copied()
+        .unwrap_or_else(default_exclusive_zone);
+    let input_layer = matches
+        .get_one::<InputLayer>("input-layer")
+        .copied()
+        .map(Into::into)
+        .unwrap_or_else(default_input_layer);
+
+    log::debug!("exclusive_zone={exclusive_zone}, input_layer={input_layer:?}");
 
     let (preset, preset_path) = match matches.get_one::<PathBuf>("file") {
         // No arguments: use a random preset from the presets directory
@@ -108,6 +166,8 @@ pub fn parse_args() -> Result<CliConfig, CliError> {
         preset,
         preset_path,
         show_overlay,
+        exclusive_zone,
+        input_layer,
     })
 }
 
@@ -167,8 +227,12 @@ fn ensure_user_data_dir() -> std::io::Result<()> {
         log::info!("Creating {:?}", app_data_dir);
         fs::create_dir_all(&app_data_dir)?;
 
-        // Determine the system-wide data directory based on the environment
-        let system_data_dir = if env::var("FLATPAK_ID").is_ok() {
+        // Determine the system-wide data directory based on the environment.
+        // Priority: compile-time override > Flatpak > FHS system install.
+        let system_data_dir = if let Some(dir) = option_env!("SHADERBG_SYSTEM_DATA_DIR") {
+            // Baked in at build time (e.g. Nix sets this to the store path)
+            Path::new(dir)
+        } else if env::var("FLATPAK_ID").is_ok() {
             // Flatpak sandbox
             Path::new("/app/share")
         } else {
@@ -209,4 +273,32 @@ fn copy_recursively_overwriting(
         }
     }
     Ok(())
+}
+
+/// Normalized value of $XDG_CURRENT_DESKTOP.
+fn current_desktop() -> String {
+    env::var("XDG_CURRENT_DESKTOP")
+        .unwrap_or_default()
+        .to_lowercase()
+}
+
+/// River is the outlier that requires exclusive zone 0. With -1 the render
+/// window behaves correctly everywhere else tested (Sway, Hyprland, Niri,
+/// Miriway, COSMIC).
+fn default_exclusive_zone() -> i32 {
+    if current_desktop().contains("river") {
+        0
+    } else {
+        -1
+    }
+}
+
+/// COSMIC does not grant focus to surfaces on the background layer, so the
+/// input-capture window must sit on the bottom layer there.
+fn default_input_layer() -> Layer {
+    if current_desktop().contains("cosmic") {
+        Layer::Bottom
+    } else {
+        Layer::Background
+    }
 }

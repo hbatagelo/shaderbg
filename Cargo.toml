@@ -21,6 +21,7 @@ clap = { version = "4", default-features = false, features = [
     "std",
     "help",
     "usage",
+    "derive",
 ] }
 dirs = "6"
 drm = "0.15"

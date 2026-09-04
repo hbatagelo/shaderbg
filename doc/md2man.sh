@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Generate man page from markdown
 
 if [ $# -ne 1 ]; then

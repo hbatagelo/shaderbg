@@ -295,7 +295,7 @@ fn create_layer_windows(app: &gtk::Application) {
             .title(APP_NAME)
             .build();
 
-        setup_layer_shell(&window);
+        setup_layer_shell(&window, app_data.cli_config.exclusive_zone);
 
         // Input is handled by the companion input window; render areas
         // must not consume keyboard events from the compositor.
@@ -339,10 +339,23 @@ fn create_layer_windows(app: &gtk::Application) {
 
         window.set_monitor(Some(monitor));
         app_data.areas.push(area);
+
+        if app_data.cli_config.preset.input_passthrough {
+            // Inert background (swaybg behavior): empty input region so all
+            // pointer events fall through to the desktop. Must be connected
+            // BEFORE present() — present() may realize the window synchronously.
+            window.connect_realize(|w| {
+                if let Some(surface) = w.surface() {
+                    surface.set_input_region(Some(&cairo::Region::create()));
+                }
+            });
+        }
+
         window.present();
 
-        // Create the companion transparent input-capture window for this monitor
-        create_input_window(app, monitor, gl_offset);
+        if !app_data.cli_config.preset.input_passthrough {
+            create_input_window(app, monitor, gl_offset);
+        }
     }
 }
 
@@ -529,11 +542,12 @@ fn setup_area(app: &gtk::Application, with_input: bool) -> gtk::GLArea {
 /// Applies Layer Shell configuration to a render window.
 ///
 /// Render windows sit on [`Layer::Background`], span the full monitor,
-/// claim an exclusive zone so the compositor reserves the entire output,
 /// and intentionally opt out of keyboard focus ([`KeyboardMode::None`]).
+/// The exclusive zone comes from the CLI configuration: -1 makes the window
+/// ignore panels and docks (default), 0 makes it respect them.
 /// Keyboard input is handled instead by the companion transparent input
 /// window created by [`create_input_window`].
-fn setup_layer_shell(window: &gtk::ApplicationWindow) {
+fn setup_layer_shell(window: &gtk::ApplicationWindow, exclusive_zone: i32) {
     window.init_layer_shell();
     window.set_layer(Layer::Background);
 
@@ -542,21 +556,22 @@ fn setup_layer_shell(window: &gtk::ApplicationWindow) {
         .for_each(|&anchor| window.set_anchor(anchor, true));
 
     window.set_namespace(Some(APP_NAME));
-    window.set_exclusive_zone(-1);
+    window.set_exclusive_zone(exclusive_zone);
     window.set_keyboard_mode(KeyboardMode::None);
 }
 
 /// Applies Layer Shell configuration to a transparent input-capture window.
 ///
-/// Input windows sit on [`Layer::Bottom`] above the render background but
-/// below all normal application windows so they receive pointer and
-/// keyboard events only when no regular window is focused over the desktop.
+/// The input window sits on the layer from the CLI configuration
+/// (background by default, bottom on COSMIC, where the background layer
+/// cannot take focus), so it receives pointer and keyboard events only
+/// when no regular window is focused over the desktop.
 ///
 /// `exclusive_zone(0)` means the window does not push any panel or dock away.
 /// [`KeyboardMode::OnDemand`] grants keyboard focus when the surface is clicked.
-fn setup_input_layer_shell(window: &gtk::ApplicationWindow) {
+fn setup_input_layer_shell(window: &gtk::ApplicationWindow, layer: Layer) {
     window.init_layer_shell();
-    window.set_layer(Layer::Bottom);
+    window.set_layer(layer);
 
     [Edge::Left, Edge::Right, Edge::Top, Edge::Bottom]
         .iter()
@@ -572,7 +587,7 @@ fn setup_input_layer_shell(window: &gtk::ApplicationWindow) {
     });
 }
 
-/// Creates a transparent [`Layer::Bottom`] window on `monitor` that captures
+/// Creates a transparent input-capture window on `monitor` that captures
 /// mouse and keyboard events on behalf of the paired render window.
 ///
 /// The window contains a single [`gtk::DrawingArea`] that draws nothing
@@ -592,7 +607,10 @@ fn create_input_window(app: &gtk::Application, monitor: &gdk::Monitor, gl_offset
         .title(format!("{APP_NAME}-input"))
         .build();
 
-    setup_input_layer_shell(&window);
+    let app_data = get_data!(app, AppData, as_ref());
+
+    setup_input_layer_shell(&window, app_data.cli_config.input_layer);
+
     window.set_monitor(Some(monitor));
 
     // A DrawingArea that explicitly paints fully transparent.
@@ -618,7 +636,6 @@ fn create_input_window(app: &gtk::Application, monitor: &gdk::Monitor, gl_offset
 
     // Wire input controllers. gl_offset is the same value used by the
     // sibling render GLArea so coordinate spaces match exactly.
-    let app_data = get_data!(app, AppData, as_ref());
     app_data.mouse_controller.setup_widget(&da, gl_offset);
     app_data.keyboard_controller.setup_widget(&da);
 
