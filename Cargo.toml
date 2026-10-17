@@ -1,6 +1,6 @@
 [package]
 name = "shaderbg"
-version = "1.3.0"
+version = "1.4.0"
 authors = ["Harlen Batagelo <hbatagelo@gmail.com>"]
 license = "GPL-3.0-or-later"
 edition = "2021"
@@ -23,7 +23,7 @@ clap = { version = "4", default-features = false, features = [
     "usage",
     "derive",
 ] }
-dirs = "6"
+dirs = "7"
 drm = "0.15"
 epoxy = "0.1"
 function_name = "0.3"

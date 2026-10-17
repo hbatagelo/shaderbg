@@ -1,3 +1,14 @@
+shaderbg (1.4.0) stable; urgency=low
+
+  * Add `input_passthrough` preset option to control mouse and keyboard event passthrough
+  * Add `track_pointer` preset option to control pointer tracking when no mouse button is held
+  * Add `--exclusive-zone ZONE` command-line option to override the render window's layer-shell exclusive zone
+  * Add `--input-layer LAYER` command-line option to override the input-capture window's layer
+  * Add a Nix flake
+  * Update dependencies to their latest versions
+
+ -- Harlen Batagelo <hbatagelo@gmail.com>  Sat, 17 Oct 2026 12:00:00 -0300
+
 shaderbg (1.3.0) stable; urgency=low
 
   * Add `background_color` option to configure the underscan color

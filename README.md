@@ -54,6 +54,25 @@ gpg --decrypt SHA256SUMS.asc | sha256sum -c --ignore-missing
 
 </details>
 
+### Using Nix
+
+```sh
+nix profile install github:hbatagelo/shaderbg
+```
+
+On non-NixOS distributions, run ShaderBG through [NixGL](https://github.com/nix-community/nixGL) to enable access to the system's OpenGL drivers:
+
+```sh
+nix run --impure github:nix-community/nixGL -- shaderbg
+```
+
+If flakes are not enabled, prepend the commands with `--extra-experimental-features 'nix-command flakes'`, e.g.:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' \
+    profile install github:hbatagelo/shaderbg
+```
+
 ### From source
 
 1. [Set up Rust](https://www.rust-lang.org/tools/install)
@@ -247,7 +266,11 @@ If the TOML file is not found, ShaderBG will automatically look for it in the pr
 
 The shader is automatically reloaded when its TOML file is edited while in use.
 
-Whenever a shader is loaded or reloaded, a text overlay containing the shader name and author is displayed for a few seconds. Use `--no-overlay` to hide the overlay.
+## Command-line options
+
+* `--no-overlay`: Hides the text overlay (shader name and author) displayed when a shader is loaded.
+* `--exclusive-zone ZONE`: Overrides the layer-shell exclusive zone of the render window. Default is -1, or 0 on [River](https://isaacfreund.com/software/river/).
+* `--input-layer LAYER`: Overrides the layer of the input-capture window, which can be `background`, `bottom`, `top`, or `overlay`. Default is `background`, or `bottom` on [COSMIC](https://system76.com/cosmic). Only has an effect when the preset's option `input_passthrough` is set to `false`.
 
 ## ShaderToy support
 
