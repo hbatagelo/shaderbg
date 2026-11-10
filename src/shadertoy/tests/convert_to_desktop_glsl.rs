@@ -1,6 +1,6 @@
 use pretty_assertions::assert_eq;
 
-use super::super::{to_glsl_version, DIFF_RESERVED_WORDS_3_0_ES_REV_2, DIFF_RESERVED_WORDS_4_2};
+use super::super::{DIFF_RESERVED_WORDS_3_0_ES_REV_2, DIFF_RESERVED_WORDS_4_2, to_glsl_version};
 
 #[test]
 fn test_rename_reserved_4_2() {

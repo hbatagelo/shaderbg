@@ -978,10 +978,11 @@ fn on_render(area: &gtk::GLArea, gl_context: &gdk::GLContext) -> glib::Propagati
             for area in &app_data.areas {
                 let area_data = get_data!(area, AreaData, as_mut());
 
-                if app_data.cli_config.show_overlay && frame_stats.frame_number == 0 {
-                    if let Some(widget) = &area_data.info_overlay {
-                        setup_fadeout_timer(widget);
-                    }
+                if app_data.cli_config.show_overlay
+                    && frame_stats.frame_number == 0
+                    && let Some(widget) = &area_data.info_overlay
+                {
+                    setup_fadeout_timer(widget);
                 }
 
                 if let Some(renderer) = area_data.renderer.as_mut() {

@@ -14,13 +14,13 @@ use gl::types::*;
 use std::{collections::HashMap, path::PathBuf};
 
 use crate::{
+    APP_NAME, GL_VERSION,
     frame_controller::*,
     geometry::{Offset, Size},
     mouse_controller::MouseData,
     preset::*,
     renderer::RenderContext,
     shadertoy::to_glsl_version,
-    APP_NAME, GL_VERSION,
 };
 
 use super::{framebuffer::*, program::*, shader::*, texture_manager::*};
@@ -667,11 +667,11 @@ fn log_dir() -> PathBuf {
             fallback_dir()
         });
 
-    if !dir.exists() {
-        if let Err(err) = std::fs::create_dir_all(&dir) {
-            log::warn!("Failed to create log directory at {}: {err}", dir.display());
-            return fallback_dir();
-        }
+    if !dir.exists()
+        && let Err(err) = std::fs::create_dir_all(&dir)
+    {
+        log::warn!("Failed to create log directory at {}: {err}", dir.display());
+        return fallback_dir();
     }
 
     dir

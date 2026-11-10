@@ -140,17 +140,17 @@ impl<'a> GlslInitializer<'a> {
                             continue;
                         }
 
-                        if BUILT_IN_TYPES.contains(&token) || self.struct_defs.contains_key(token) {
-                            if let Some((modification, next_i)) = self.process_type_declaration(
+                        if (BUILT_IN_TYPES.contains(&token) || self.struct_defs.contains_key(token))
+                            && let Some((modification, next_i)) = self.process_type_declaration(
                                 token,
                                 i,
                                 &mut depth_tracker,
                                 &self.struct_defs,
-                            ) {
-                                modifications.push(modification);
-                                i = next_i;
-                                continue;
-                            }
+                            )
+                        {
+                            modifications.push(modification);
+                            i = next_i;
+                            continue;
                         }
                     } else {
                         i += 1;

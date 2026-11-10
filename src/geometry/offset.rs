@@ -10,7 +10,7 @@ use std::{
 };
 
 use super::super::impl_scalar_mul;
-use super::{vector2d::Vector2D, GenericPoint};
+use super::{GenericPoint, vector2d::Vector2D};
 
 #[derive(Default, Copy, Clone, PartialEq)]
 pub struct GenericOffset<T> {

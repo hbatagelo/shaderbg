@@ -13,7 +13,7 @@ use gl::types::*;
 use image::*;
 use std::{collections::HashMap, path::PathBuf};
 
-use crate::{geometry::Size, keyboard_controller::KeyboardData, preset::*, APP_NAME};
+use crate::{APP_NAME, geometry::Size, keyboard_controller::KeyboardData, preset::*};
 
 use super::render_pass::RenderPass;
 

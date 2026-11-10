@@ -43,11 +43,7 @@ where
     }
 
     fn clamp(value: T) -> T {
-        if value < T::zero() {
-            T::zero()
-        } else {
-            value
-        }
+        if value < T::zero() { T::zero() } else { value }
     }
 }
 

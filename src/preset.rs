@@ -540,14 +540,14 @@ pub fn presets_dir() -> PathBuf {
         });
 
     // Ensure the directory exists before returning it.
-    if !dir.exists() {
-        if let Err(err) = std::fs::create_dir_all(&dir) {
-            log::warn!(
-                "Failed to create presets directory at {}: {err}",
-                dir.display()
-            );
-            return fallback_dir();
-        }
+    if !dir.exists()
+        && let Err(err) = std::fs::create_dir_all(&dir)
+    {
+        log::warn!(
+            "Failed to create presets directory at {}: {err}",
+            dir.display()
+        );
+        return fallback_dir();
     }
 
     dir
@@ -580,11 +580,11 @@ where
     // Trigger callback once file modifications are fully written.
     let app_clone = app.clone();
     monitor.connect_changed(move |_, changed_file, _, event_type| {
-        if event_type == gio::FileMonitorEvent::ChangesDoneHint {
-            if let Some(path) = changed_file.path() {
-                log::info!("Preset file changed: {}", path.display());
-                on_change(&app_clone, &path);
-            }
+        if event_type == gio::FileMonitorEvent::ChangesDoneHint
+            && let Some(path) = changed_file.path()
+        {
+            log::info!("Preset file changed: {}", path.display());
+            on_change(&app_clone, &path);
         }
     });
 

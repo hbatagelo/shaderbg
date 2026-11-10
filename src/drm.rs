@@ -12,8 +12,8 @@
 //! initialized or if fallback monitor detection should be used.
 
 use drm::{
-    control::{connector::State, Device as ControlDevice},
     Device,
+    control::{Device as ControlDevice, connector::State},
 };
 use std::{error::Error, fs::*, os::fd::*};
 

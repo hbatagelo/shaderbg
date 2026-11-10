@@ -112,7 +112,7 @@ struct ViewportSettings {
 
 /// Immutable per-frame rendering inputs shared across render passes.
 pub struct RenderContext<'a> {
-    /// Immutable per-frame rendering inputs shared across render passes.
+    /// Texture manager responsible for external textures and pass outputs.
     pub texture_manager: &'a TextureManager,
 
     /// Vertex arrays used for fullscreen and cubemap rendering.

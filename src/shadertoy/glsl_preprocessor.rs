@@ -144,7 +144,7 @@ impl GlslPreprocessor {
                             return Err(ShaderPreprocess(
                                 format!("Unknown directive ({directive})"),
                                 self.line_number,
-                            ))
+                            ));
                         }
                     }
                 }
@@ -507,13 +507,13 @@ impl GlslPreprocessor {
     fn parse_logical_or(&self, tokens: &[Token], index: &mut usize) -> i64 {
         let mut left = self.parse_logical_and(tokens, index);
         while *index < tokens.len() {
-            if let Token::Op(op) = &tokens[*index] {
-                if op == "||" {
-                    *index += 1;
-                    let right = self.parse_logical_and(tokens, index);
-                    left = if left != 0 || right != 0 { 1 } else { 0 };
-                    continue;
-                }
+            if let Token::Op(op) = &tokens[*index]
+                && op == "||"
+            {
+                *index += 1;
+                let right = self.parse_logical_and(tokens, index);
+                left = if left != 0 || right != 0 { 1 } else { 0 };
+                continue;
             }
             break;
         }
@@ -523,13 +523,13 @@ impl GlslPreprocessor {
     fn parse_logical_and(&self, tokens: &[Token], index: &mut usize) -> i64 {
         let mut left = self.parse_logical_xor(tokens, index);
         while *index < tokens.len() {
-            if let Token::Op(op) = &tokens[*index] {
-                if op == "&&" {
-                    *index += 1;
-                    let right = self.parse_logical_xor(tokens, index);
-                    left = if left != 0 && right != 0 { 1 } else { 0 };
-                    continue;
-                }
+            if let Token::Op(op) = &tokens[*index]
+                && op == "&&"
+            {
+                *index += 1;
+                let right = self.parse_logical_xor(tokens, index);
+                left = if left != 0 && right != 0 { 1 } else { 0 };
+                continue;
             }
             break;
         }
@@ -539,13 +539,13 @@ impl GlslPreprocessor {
     fn parse_logical_xor(&self, tokens: &[Token], index: &mut usize) -> i64 {
         let mut left = self.parse_bitwise_or(tokens, index);
         while *index < tokens.len() {
-            if let Token::Op(op) = &tokens[*index] {
-                if op == "^^" {
-                    *index += 1;
-                    let right = self.parse_bitwise_or(tokens, index);
-                    left = if (left != 0) != (right != 0) { 1 } else { 0 };
-                    continue;
-                }
+            if let Token::Op(op) = &tokens[*index]
+                && op == "^^"
+            {
+                *index += 1;
+                let right = self.parse_bitwise_or(tokens, index);
+                left = if (left != 0) != (right != 0) { 1 } else { 0 };
+                continue;
             }
             break;
         }
@@ -555,13 +555,13 @@ impl GlslPreprocessor {
     fn parse_bitwise_or(&self, tokens: &[Token], index: &mut usize) -> i64 {
         let mut left = self.parse_bitwise_xor(tokens, index);
         while *index < tokens.len() {
-            if let Token::Op(op) = &tokens[*index] {
-                if op == "|" {
-                    *index += 1;
-                    let right = self.parse_bitwise_xor(tokens, index);
-                    left |= right;
-                    continue;
-                }
+            if let Token::Op(op) = &tokens[*index]
+                && op == "|"
+            {
+                *index += 1;
+                let right = self.parse_bitwise_xor(tokens, index);
+                left |= right;
+                continue;
             }
             break;
         }
@@ -571,13 +571,13 @@ impl GlslPreprocessor {
     fn parse_bitwise_xor(&self, tokens: &[Token], index: &mut usize) -> i64 {
         let mut left = self.parse_equality(tokens, index);
         while *index < tokens.len() {
-            if let Token::Op(op) = &tokens[*index] {
-                if op == "^" {
-                    *index += 1;
-                    let right = self.parse_equality(tokens, index);
-                    left ^= right;
-                    continue;
-                }
+            if let Token::Op(op) = &tokens[*index]
+                && op == "^"
+            {
+                *index += 1;
+                let right = self.parse_equality(tokens, index);
+                left ^= right;
+                continue;
             }
             break;
         }
@@ -587,13 +587,13 @@ impl GlslPreprocessor {
     fn parse_bitwise_and(&self, tokens: &[Token], index: &mut usize) -> i64 {
         let mut left = self.parse_relational(tokens, index);
         while *index < tokens.len() {
-            if let Token::Op(op) = &tokens[*index] {
-                if op == "&" {
-                    *index += 1;
-                    let right = self.parse_relational(tokens, index);
-                    left &= right;
-                    continue;
-                }
+            if let Token::Op(op) = &tokens[*index]
+                && op == "&"
+            {
+                *index += 1;
+                let right = self.parse_relational(tokens, index);
+                left &= right;
+                continue;
             }
             break;
         }
@@ -735,11 +735,7 @@ impl GlslPreprocessor {
             Token::Op(op) if op == "!" => {
                 *index += 1;
                 let val = self.parse_unary(tokens, index);
-                if val == 0 {
-                    1
-                } else {
-                    0
-                }
+                if val == 0 { 1 } else { 0 }
             }
             Token::Op(op) if op == "-" => {
                 *index += 1;
