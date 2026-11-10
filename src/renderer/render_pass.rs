@@ -525,116 +525,114 @@ impl RenderPass {
         frame_tracker: &mut HashMap<String, u32>,
         frame_stats: &FrameStats,
     ) {
-        let mut channel_resolutions = Vec::<f32>::default();
+        let mut channel_resolutions = [0.0f32; 12];
 
-        for (idx, input) in self
-            .inputs
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, opt)| opt.as_ref().map(|input| (idx, input)))
-        {
-            let mut texture_name = input.name.clone();
+        for idx in 0..4 {
+            let declared_target = self.inputs[idx]
+                .as_ref()
+                .map(|input| match input._type {
+                    InputType::Cubemap => gl::TEXTURE_CUBE_MAP,
+                    InputType::Misc if input.name == "Cubemap A" => gl::TEXTURE_CUBE_MAP,
+                    InputType::Volume => gl::TEXTURE_3D,
+                    _ => gl::TEXTURE_2D,
+                })
+                .unwrap_or(gl::TEXTURE_2D);
 
-            // Buffer inputs reference outputs from other passes.
-            // We select the correct ping-pong buffer so a pass never
-            // reads from the framebuffer currently being written.
-            if matches!(
-                input.name.as_str(),
-                "Buffer A" | "Buffer B" | "Buffer C" | "Buffer D" | "Cubemap A"
-            ) {
-                let mut offset = 0;
-                if self.name > input.name {
-                    let texture_name_with_suffix =
-                        input.name.clone() + &(frame_stats.frame_number % 2).to_string();
-                    let previous_frame_number = frame_tracker
-                        .insert(texture_name_with_suffix, frame_stats.frame_number)
-                        .unwrap_or(u32::MAX);
-                    if previous_frame_number != frame_stats.frame_number {
-                        offset = 1;
+            let (texture_id, input_opt) = match self.inputs[idx].as_ref() {
+                Some(input) => {
+                    let mut texture_name = input.name.clone();
+
+                    // Buffer inputs reference outputs from other passes.
+                    // We select the correct ping-pong buffer so a pass never
+                    // reads from the framebuffer currently being written.
+                    if matches!(
+                        input.name.as_str(),
+                        "Buffer A" | "Buffer B" | "Buffer C" | "Buffer D" | "Cubemap A"
+                    ) {
+                        let mut offset = 0;
+                        if self.name > input.name {
+                            let suffixed =
+                                input.name.clone() + &(frame_stats.frame_number % 2).to_string();
+                            let prev = frame_tracker
+                                .insert(suffixed, frame_stats.frame_number)
+                                .unwrap_or(u32::MAX);
+                            if prev != frame_stats.frame_number {
+                                offset = 1;
+                            }
+                        }
+                        texture_name += &((frame_stats.frame_number + offset) % 2).to_string();
                     }
-                };
-                texture_name += &((frame_stats.frame_number + offset) % 2).to_string();
-            }
 
-            if input._type == InputType::Texture && input.vflip {
-                texture_name += "vflip";
-            }
+                    if input._type == InputType::Texture && input.vflip {
+                        texture_name += "vflip";
+                    }
 
-            let texture_id = if input._type == InputType::Keyboard {
-                texture_manager.keyboard_id()
-            } else {
-                texture_manager.id(&texture_name)
+                    let resolved = if input._type == InputType::Keyboard {
+                        texture_manager.keyboard_id()
+                    } else {
+                        texture_manager.id(&texture_name)
+                    };
+
+                    match resolved {
+                        Some(tid) => (tid, Some(input)),
+                        None => (texture_manager.fallback_for(declared_target), None),
+                    }
+                }
+                None => (texture_manager.fallback_for(declared_target), None),
             };
 
-            if let Some(texture_id) = texture_id {
-                let target = if input._type == InputType::Cubemap || input.name == "Cubemap A" {
-                    gl::TEXTURE_CUBE_MAP
-                } else if input._type == InputType::Volume {
-                    gl::TEXTURE_3D
-                } else {
-                    gl::TEXTURE_2D
-                };
+            unsafe {
+                gl::ActiveTexture(gl::TEXTURE0 + idx as GLuint);
+                gl::BindTexture(declared_target, texture_id);
+            }
 
-                unsafe {
-                    gl::ActiveTexture(gl::TEXTURE0 + idx as GLuint);
-                    gl::BindTexture(target, texture_id);
-                }
-
-                let wrap_mode = if input.wrap == WrapMode::Repeat {
+            if let Some(input) = input_opt {
+                let wrap = if input.wrap == WrapMode::Repeat {
                     gl::REPEAT
                 } else {
                     gl::CLAMP_TO_EDGE
                 };
-                unsafe {
-                    gl::TexParameteri(target, gl::TEXTURE_WRAP_S, wrap_mode as i32);
-                    gl::TexParameteri(target, gl::TEXTURE_WRAP_T, wrap_mode as i32);
-                    if target == gl::TEXTURE_3D {
-                        gl::TexParameteri(target, gl::TEXTURE_WRAP_R, wrap_mode as i32);
-                    }
-                }
-
-                let (min_filter, mag_filter) = match input.filter {
+                let (min_f, mag_f) = match input.filter {
                     FilterMode::Nearest => (gl::NEAREST, gl::NEAREST),
                     FilterMode::Linear => (gl::LINEAR, gl::LINEAR),
                     FilterMode::Mipmap => (gl::LINEAR_MIPMAP_LINEAR, gl::LINEAR),
                 };
                 unsafe {
-                    gl::TexParameteri(target, gl::TEXTURE_MIN_FILTER, min_filter as i32);
-                    gl::TexParameteri(target, gl::TEXTURE_MAG_FILTER, mag_filter as i32);
-                }
-
-                if input._type == InputType::Misc && input.filter == FilterMode::Mipmap {
-                    unsafe { gl::GenerateMipmap(target) };
-                }
-
-                let i_channel_location = self.uniform_locations.i_channel[idx];
-                if i_channel_location >= 0 {
-                    unsafe { gl::Uniform1i(i_channel_location, idx as i32) };
-                }
-
-                let (mut width, mut height, mut depth): (i32, i32, i32) = (0, 0, 1);
-                if input._type == InputType::Cubemap {
-                    let target = gl::TEXTURE_CUBE_MAP_POSITIVE_X;
-                    unsafe {
-                        gl::GetTexLevelParameteriv(target, 0, gl::TEXTURE_WIDTH, &mut width);
-                        gl::GetTexLevelParameteriv(target, 0, gl::TEXTURE_HEIGHT, &mut height);
+                    gl::TexParameteri(declared_target, gl::TEXTURE_WRAP_S, wrap as i32);
+                    gl::TexParameteri(declared_target, gl::TEXTURE_WRAP_T, wrap as i32);
+                    if declared_target == gl::TEXTURE_3D {
+                        gl::TexParameteri(declared_target, gl::TEXTURE_WRAP_R, wrap as i32);
                     }
-                } else if input._type == InputType::Volume {
-                    unsafe {
-                        gl::GetTexLevelParameteriv(target, 0, gl::TEXTURE_WIDTH, &mut width);
-                        gl::GetTexLevelParameteriv(target, 0, gl::TEXTURE_HEIGHT, &mut height);
-                        gl::GetTexLevelParameteriv(target, 0, gl::TEXTURE_DEPTH, &mut depth);
+                    gl::TexParameteri(declared_target, gl::TEXTURE_MIN_FILTER, min_f as i32);
+                    gl::TexParameteri(declared_target, gl::TEXTURE_MAG_FILTER, mag_f as i32);
+                    if input._type == InputType::Misc && input.filter == FilterMode::Mipmap {
+                        gl::GenerateMipmap(declared_target);
                     }
+                }
+
+                let level_target = if declared_target == gl::TEXTURE_CUBE_MAP {
+                    gl::TEXTURE_CUBE_MAP_POSITIVE_X
                 } else {
-                    unsafe {
-                        gl::GetTexLevelParameteriv(target, 0, gl::TEXTURE_WIDTH, &mut width);
-                        gl::GetTexLevelParameteriv(target, 0, gl::TEXTURE_HEIGHT, &mut height);
+                    declared_target
+                };
+                let mut w = 0i32;
+                let mut h = 0i32;
+                let mut d = 1i32;
+                unsafe {
+                    gl::GetTexLevelParameteriv(level_target, 0, gl::TEXTURE_WIDTH, &mut w);
+                    gl::GetTexLevelParameteriv(level_target, 0, gl::TEXTURE_HEIGHT, &mut h);
+                    if declared_target == gl::TEXTURE_3D {
+                        gl::GetTexLevelParameteriv(level_target, 0, gl::TEXTURE_DEPTH, &mut d);
                     }
                 }
+                channel_resolutions[idx * 3] = w as f32;
+                channel_resolutions[idx * 3 + 1] = h as f32;
+                channel_resolutions[idx * 3 + 2] = d as f32;
+            }
 
-                channel_resolutions.push(width as f32);
-                channel_resolutions.push(height as f32);
-                channel_resolutions.push(depth as f32);
+            let i_channel_location = self.uniform_locations.i_channel[idx];
+            if i_channel_location >= 0 {
+                unsafe { gl::Uniform1i(i_channel_location, idx as i32) };
             }
         }
 

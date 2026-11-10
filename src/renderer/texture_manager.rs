@@ -19,26 +19,22 @@ use super::render_pass::RenderPass;
 
 /// GPU texture wrapper with ownership semantics.
 ///
-/// Textures created from external inputs are owned and deleted
-/// by the manager. Textures originating from framebuffer outputs
-/// are borrowed and must not be deleted.
+/// Textures created from external inputs are managed.
+/// Framebuffer output textures are not managed because they are owned by the framebuffer.
 struct Texture {
     id: GLuint,
-    input_type: InputType,
+    managed: bool,
 }
 
 impl Texture {
-    fn new(id: u32, input_type: InputType) -> Self {
-        Self { id, input_type }
+    fn new(id: GLuint, managed: bool) -> Self {
+        Self { id, managed }
     }
 }
 
 impl Drop for Texture {
     fn drop(&mut self) {
-        // Only delete textures created by the manager.
-        // Framebuffer attachments are owned elsewhere.
-        let managed = self.input_type != InputType::Misc;
-        if managed {
+        if self.managed {
             unsafe { gl::DeleteTextures(1, &self.id) };
         }
     }
@@ -74,6 +70,9 @@ const KEYBOARD_TEXTURE_HEIGHT: usize = 3;
 pub struct TextureManager {
     map: HashMap<String, Texture>,
     keyboard_texture: Option<Texture>,
+    fallback_2d: Texture,
+    fallback_cube: Texture,
+    fallback_3d: Texture,
     // index = row * 256 + keycode
     keyboard_state: [u8; KEYBOARD_TEXTURE_WIDTH * KEYBOARD_TEXTURE_HEIGHT],
 }
@@ -83,6 +82,9 @@ impl TextureManager {
         Self {
             map: HashMap::new(),
             keyboard_texture: None,
+            fallback_2d: Texture::new(create_black_2d_texture(), true),
+            fallback_cube: Texture::new(create_black_cube_texture(), true),
+            fallback_3d: Texture::new(create_black_3d_texture(), true),
             keyboard_state: [0; KEYBOARD_TEXTURE_WIDTH * KEYBOARD_TEXTURE_HEIGHT],
         }
     }
@@ -111,8 +113,7 @@ impl TextureManager {
                     .any(|input| input._type == InputType::Keyboard)
             });
             if uses_keyboard {
-                self.keyboard_texture =
-                    Some(Texture::new(create_keyboard_texture(), InputType::Keyboard));
+                self.keyboard_texture = Some(Texture::new(create_keyboard_texture(), true));
             }
         }
 
@@ -206,8 +207,7 @@ impl TextureManager {
                         _ => load_2d_texture(PathBuf::default(), false, false),
                     };
 
-                    self.map
-                        .insert(key, Texture::new(external_input_id, input._type));
+                    self.map.insert(key, Texture::new(external_input_id, true));
                 }
             }
             let name = if pass.name() == "Cube A" {
@@ -229,12 +229,21 @@ impl TextureManager {
             // result from the previous frame.
             self.map.insert(
                 name.to_string() + "0",
-                Texture::new(pass.framebuffers()[0].texture(), InputType::Misc),
+                Texture::new(pass.framebuffers()[0].texture(), false),
             );
             self.map.insert(
                 name.to_string() + "1",
-                Texture::new(pass.framebuffers()[1].texture(), InputType::Misc),
+                Texture::new(pass.framebuffers()[1].texture(), false),
             );
+        }
+    }
+
+    /// Returns the fallback texture matching `target`.
+    pub fn fallback_for(&self, target: GLenum) -> GLuint {
+        match target {
+            gl::TEXTURE_CUBE_MAP => self.fallback_cube.id,
+            gl::TEXTURE_3D => self.fallback_3d.id,
+            _ => self.fallback_2d.id,
         }
     }
 
@@ -578,4 +587,107 @@ fn create_keyboard_texture() -> GLuint {
     }
 
     texture_id
+}
+
+/// Creates a 1x1 black 2D texture for use as a fallback.
+fn create_black_2d_texture() -> GLuint {
+    let mut id = 0;
+    unsafe {
+        gl::GenTextures(1, &mut id);
+        gl::BindTexture(gl::TEXTURE_2D, id);
+        let data = [0u8; 4];
+        gl::TexImage2D(
+            gl::TEXTURE_2D,
+            0,
+            gl::RGBA8 as i32,
+            1,
+            1,
+            0,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE,
+            data.as_ptr() as *const _,
+        );
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+    }
+    id
+}
+
+/// Creates a 1x1 black cube texture for use as a fallback.
+fn create_black_cube_texture() -> GLuint {
+    let mut id = 0;
+    unsafe {
+        gl::GenTextures(1, &mut id);
+        gl::BindTexture(gl::TEXTURE_CUBE_MAP, id);
+        let data = [0u8; 4];
+        for face in 0..6 {
+            gl::TexImage2D(
+                gl::TEXTURE_CUBE_MAP_POSITIVE_X + face,
+                0,
+                gl::RGBA8 as i32,
+                1,
+                1,
+                0,
+                gl::RGBA,
+                gl::UNSIGNED_BYTE,
+                data.as_ptr() as *const _,
+            );
+        }
+        gl::TexParameteri(
+            gl::TEXTURE_CUBE_MAP,
+            gl::TEXTURE_MIN_FILTER,
+            gl::NEAREST as i32,
+        );
+        gl::TexParameteri(
+            gl::TEXTURE_CUBE_MAP,
+            gl::TEXTURE_MAG_FILTER,
+            gl::NEAREST as i32,
+        );
+        gl::TexParameteri(
+            gl::TEXTURE_CUBE_MAP,
+            gl::TEXTURE_WRAP_S,
+            gl::CLAMP_TO_EDGE as i32,
+        );
+        gl::TexParameteri(
+            gl::TEXTURE_CUBE_MAP,
+            gl::TEXTURE_WRAP_T,
+            gl::CLAMP_TO_EDGE as i32,
+        );
+        gl::TexParameteri(
+            gl::TEXTURE_CUBE_MAP,
+            gl::TEXTURE_WRAP_R,
+            gl::CLAMP_TO_EDGE as i32,
+        );
+    }
+    id
+}
+
+/// Creates a 1x1 black 3D texture for use as a fallback.
+fn create_black_3d_texture() -> GLuint {
+    let mut id = 0;
+    unsafe {
+        gl::GenTextures(1, &mut id);
+        gl::BindTexture(gl::TEXTURE_3D, id);
+        let data = [0u8; 4];
+        gl::TexImage3D(
+            gl::TEXTURE_3D,
+            0,
+            gl::RGBA8 as i32,
+            1,
+            1,
+            1,
+            0,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE,
+            data.as_ptr() as *const _,
+        );
+        gl::TexParameteri(gl::TEXTURE_3D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as i32);
+        gl::TexParameteri(gl::TEXTURE_3D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as i32);
+        gl::TexParameteri(gl::TEXTURE_3D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
+        gl::TexParameteri(gl::TEXTURE_3D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
+        gl::TexParameteri(gl::TEXTURE_3D, gl::TEXTURE_WRAP_R, gl::CLAMP_TO_EDGE as i32);
+    }
+    id
 }
