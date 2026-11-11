@@ -50,9 +50,6 @@ void main() {
 /// Enables cubemap-specific shader paths.
 const CUBEMAP_DEFINITION: &str = "#define SHADERBG_CUBEMAP\n";
 
-/// Global define indicating execution inside ShaderBG runtime.
-const SHADERBG_DEFINITION: &str = "#define SHADERBG\n";
-
 /// Injected fragment shader interface shared by all passes.
 const FRAGMENT_SHADER_HEADER: &str = r#"
 in vec2 sbg_FragTexCoord;
@@ -85,6 +82,12 @@ uniform float iChannelTime[4];       // TODO: channel playback time (in seconds)
 uniform float iSampleRate;           // TODO: sound sample rate (i.e., 44100)
 
 uniform vec2  iResolutionOffset;     // Offset to adjust gl_FragCoord when rendering to multiple monitors
+
+// Custom uniforms controlled via IPC
+uniform vec4 iCustom0;
+uniform vec4 iCustom1;
+uniform vec4 iCustom2;
+uniform vec4 iCustom3;
 "#;
 
 /// Wrapper main function dispatching to `mainImage` or `mainCubemap`.
@@ -129,6 +132,7 @@ struct UniformLocations {
     i_channel_resolution: GLint,
     i_resolution_offset: GLint,
     i_channel: [GLint; 4],
+    i_custom: [GLint; 4],
 }
 
 /// One ShaderToy rendering stage.
@@ -172,6 +176,7 @@ impl RenderPass {
         framebuffer_size: Size,
         inputs: [Option<Input>; 4],
         msaa_samples: u32,
+        ipc_name: &str,
     ) -> Result<Self, ShaderError> {
         let mut is_cubemap_pass = name == "Cube A";
         let mut channel_uniform_declarations = String::default();
@@ -196,8 +201,10 @@ impl RenderPass {
             }
             + VERTEX_SHADER;
 
+        let shaderbg_def = shaderbg_definition(ipc_name);
+
         let fragment_shader_source = &(version_directive()
-            + SHADERBG_DEFINITION
+            + &shaderbg_def
             + if is_cubemap_pass {
                 CUBEMAP_DEFINITION
             } else {
@@ -207,7 +214,7 @@ impl RenderPass {
             + &channel_uniform_declarations
             + "\n"
             + &to_glsl_version(
-                &(SHADERBG_DEFINITION.to_string() + common_shader + "\n" + pass_shader + "\n"),
+                &(shaderbg_def + common_shader + "\n" + pass_shader + "\n"),
                 GL_VERSION,
                 false,
             )?
@@ -273,6 +280,12 @@ impl RenderPass {
                 program.uniform_location("iChannel1")?,
                 program.uniform_location("iChannel2")?,
                 program.uniform_location("iChannel3")?,
+            ],
+            i_custom: [
+                program.uniform_location("iCustom0")?,
+                program.uniform_location("iCustom1")?,
+                program.uniform_location("iCustom2")?,
+                program.uniform_location("iCustom3")?,
             ],
         };
 
@@ -370,6 +383,7 @@ impl RenderPass {
             ctx.framebuffer_scale,
             ctx.frame_stats,
         );
+        self.set_custom_uniforms(ctx.custom_uniforms);
         self.set_channel_uniforms(ctx.texture_manager, frame_tracker, ctx.frame_stats);
 
         if self.uniform_locations.i_resolution_offset >= 0 {
@@ -421,6 +435,7 @@ impl RenderPass {
         self.program.bind();
 
         self.set_common_uniforms(resolution, ctx.mouse_data, 1., ctx.frame_stats);
+        self.set_custom_uniforms(ctx.custom_uniforms);
         self.set_channel_uniforms(ctx.texture_manager, frame_tracker, ctx.frame_stats);
 
         for (face_idx, &face) in CUBEMAP_FACES.iter().enumerate() {
@@ -511,6 +526,15 @@ impl RenderPass {
                 + (now.nanosecond() as f32) / (NANOS_PER_SEC as f32);
 
             unsafe { gl::Uniform4f(i_date_location, year, month, day, time) };
+        }
+    }
+
+    /// Uploads custom uniforms (`iCustom0..3`).
+    fn set_custom_uniforms(&self, uniforms: &[[f32; 4]; 4]) {
+        for (loc, value) in self.uniform_locations.i_custom.iter().zip(uniforms) {
+            if *loc >= 0 {
+                unsafe { gl::Uniform4fv(*loc, 1, value.as_ptr()) };
+            }
         }
     }
 
@@ -673,4 +697,11 @@ fn log_dir() -> PathBuf {
     }
 
     dir
+}
+
+/// Builds the SHADERBG preamble, embedding the IPC instance name.
+fn shaderbg_definition(ipc_name: &str) -> String {
+    // The name is a filename-safe identifier but escape anyway for safety.
+    let escaped = ipc_name.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("#define SHADERBG\n#define SHADERBG_IPC_NAME \"{escaped}\"\n")
 }

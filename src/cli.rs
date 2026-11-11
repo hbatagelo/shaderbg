@@ -78,6 +78,9 @@ pub struct CliConfig {
 
     /// Layer of the input-capture window. Default: background, or bottom on COSMIC.
     pub input_layer: Layer,
+
+    /// IPC instance name (determines the socket filename).
+    pub ipc_name: String,
 }
 
 impl Default for CliConfig {
@@ -88,15 +91,51 @@ impl Default for CliConfig {
             show_overlay: true,
             exclusive_zone: default_exclusive_zone(),
             input_layer: default_input_layer(),
+            ipc_name: "default".into(),
         }
     }
+}
+
+/// Outcome of command-line parsing.
+pub enum Invocation {
+    /// Runs shaderbg as a normal application.
+    App(Box<CliConfig>),
+
+    /// Runs shaderbg as an IPC client (`shaderbg ctl`).
+    IpcClient(IpcCliConfig),
+}
+
+/// Configuration for `shaderbg ctl`.
+pub struct IpcCliConfig {
+    /// Target instance name.
+    pub ipc_name: String,
+
+    // Subcommand to execute.
+    pub command: IpcCommand,
+}
+
+/// Subcommand executed by `shaderbg ctl`.
+pub enum IpcCommand {
+    /// Enumerate live instances and print their preset metadata.
+    List,
+
+    /// Print preset metadata for the target instance.
+    Info,
+
+    /// Print current values of the named uniforms.
+    Get { uniforms: Vec<String> },
+
+    /// Set the named uniforms.
+    Set { uniforms: Vec<(String, [f32; 4])> },
 }
 
 /// Parses command-line arguments and resolves the initial preset.
 ///
 /// - No arguments: load a random preset.
-/// - One argument: load a TOML preset or ShaderToy JSON export.
-pub fn parse_args() -> Result<CliConfig, CliError> {
+/// - One argument:
+///   - If file path: load a TOML preset or ShaderToy JSON export.
+///   - If `ctl`: run the IPC client subcommand.
+pub fn parse_args() -> Result<Invocation, CliError> {
     ensure_user_data_dir()?;
 
     let presets_directory = presets_dir();
@@ -105,10 +144,11 @@ pub fn parse_args() -> Result<CliConfig, CliError> {
         .author(APP_AUTHOR)
         .version(APP_SEMVER)
         .about(APP_ABOUT)
+        .subcommand(ctl_subcommand())
         .arg(
             Arg::new("file")
                 .value_name("FILE")
-                .help("Path to TOML preset file or ShaderToy JSON export")
+                .help("Path to TOML preset or ShaderToy JSON export. If empty, a random preset is loaded.")
                 .value_parser(clap::value_parser!(PathBuf)),
         )
         .arg(
@@ -134,7 +174,14 @@ pub fn parse_args() -> Result<CliConfig, CliError> {
                 )
                 .value_parser(clap::value_parser!(InputLayer)),
         )
-        .after_help("Run with no arguments to use a random preset")
+        .arg(
+            Arg::new("ipc-name")
+                .long("ipc-name")
+                .value_name("NAME")
+                .help("IPC instance name (default: \"default\")")
+                .global(true),
+        )
+        .args_conflicts_with_subcommands(true)
         .get_matches();
 
     let show_overlay = !matches.get_flag("no-overlay");
@@ -148,6 +195,14 @@ pub fn parse_args() -> Result<CliConfig, CliError> {
         .copied()
         .map(Into::into)
         .unwrap_or_else(default_input_layer);
+    let ipc_name = matches
+        .get_one::<String>("ipc-name")
+        .cloned()
+        .unwrap_or_else(|| "default".into());
+
+    if let Some(("ctl", ctl)) = matches.subcommand() {
+        return parse_ctl(ctl, ipc_name);
+    }
 
     log::debug!("exclusive_zone={exclusive_zone}, input_layer={input_layer:?}");
 
@@ -162,13 +217,14 @@ pub fn parse_args() -> Result<CliConfig, CliError> {
         log::info!("Loaded {}", path.display());
     }
 
-    Ok(CliConfig {
+    Ok(Invocation::App(Box::new(CliConfig {
         preset,
         preset_path,
         show_overlay,
         exclusive_zone,
         input_layer,
-    })
+        ipc_name,
+    })))
 }
 
 /// Loads a preset from either an explicit filesystem path,
@@ -301,4 +357,76 @@ fn default_input_layer() -> Layer {
     } else {
         Layer::Background
     }
+}
+
+/// Builds the `ctl` subcommand tree.
+fn ctl_subcommand() -> Command {
+    Command::new("ctl")
+        .about("Control a running shaderbg instance via IPC")
+        .subcommand_required(true)
+        .arg_required_else_help(true)
+        .subcommand(Command::new("list").about("List running instances"))
+        .subcommand(Command::new("info").about("Show preset metadata"))
+        .subcommand(
+            Command::new("get")
+                .about("Print current uniform values, e.g. get iCustom0 iCustom1")
+                .arg(Arg::new("uniforms").num_args(0..).value_name("iCustomN")),
+        )
+        .subcommand(
+            Command::new("set")
+                .about("Set uniform values, e.g. set iCustom0=0.5,0.5,0.5,1.0")
+                .arg(
+                    Arg::new("uniforms")
+                        .num_args(1..)
+                        .value_name("NAME=x,y,z,w")
+                        .required(true)
+                        .value_parser(parse_uniform_arg),
+                ),
+        )
+}
+
+/// Parses one `set` argument of the form `NAME=x,y,z,w`.
+fn parse_uniform_arg(s: &str) -> Result<(String, [f32; 4]), String> {
+    let (name, values) = s
+        .split_once('=')
+        .ok_or_else(|| format!("expected NAME=x,y,z,w, got '{s}'"))?;
+    let comps: Vec<&str> = values.split(',').collect();
+    if comps.len() != 4 {
+        return Err(format!(
+            "expected 4 comma-separated floats, got '{}'",
+            values
+        ));
+    }
+    let mut out = [0.0f32; 4];
+    for (i, c) in comps.iter().enumerate() {
+        out[i] = c
+            .trim()
+            .parse::<f32>()
+            .map_err(|e| format!("{name}[{i}]: {e}"))?;
+    }
+    Ok((name.to_string(), out))
+}
+
+/// Converts the parsed `ctl` subcommand matches into an `Invocation`.
+fn parse_ctl(matches: &clap::ArgMatches, ipc_name: String) -> Result<Invocation, CliError> {
+    let (cmd_name, cmd_matches) = matches.subcommand().unwrap();
+    let command = match cmd_name {
+        "list" => IpcCommand::List,
+        "info" => IpcCommand::Info,
+        "get" => IpcCommand::Get {
+            uniforms: cmd_matches
+                .get_many::<String>("uniforms")
+                .map(|v| v.cloned().collect())
+                .unwrap_or_default(),
+        },
+        "set" => IpcCommand::Set {
+            uniforms: cmd_matches
+                .get_many::<(String, [f32; 4])>("uniforms")
+                .unwrap()
+                .cloned()
+                .collect(),
+        },
+        _ => unreachable!(),
+    };
+    Ok(Invocation::IpcClient(IpcCliConfig { ipc_name, command }))
 }

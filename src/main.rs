@@ -8,6 +8,8 @@ mod cli;
 mod drm;
 mod frame_controller;
 mod geometry;
+mod ipc_client;
+mod ipc_server;
 mod keyboard_controller;
 mod mouse_controller;
 mod preset;
@@ -27,11 +29,11 @@ fn main() -> gtk::glib::ExitCode {
         eprintln!("Failed to initialize logging: {err}");
     }
 
-    let config = match cli::parse_args() {
-        Ok(cfg) => cfg,
+    let invocation = match cli::parse_args() {
+        Ok(inv) => inv,
         Err(cli::CliError::InvalidInput(warn)) => {
             log::warn!("{warn}. Using default settings.");
-            cli::CliConfig::default()
+            cli::Invocation::App(Box::default())
         }
         Err(err) => {
             eprintln!("{err}");
@@ -39,5 +41,8 @@ fn main() -> gtk::glib::ExitCode {
         }
     };
 
-    app::run(config)
+    match invocation {
+        cli::Invocation::App(config) => app::run(*config),
+        cli::Invocation::IpcClient(config) => ipc_client::run(&config),
+    }
 }

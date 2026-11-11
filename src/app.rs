@@ -64,6 +64,15 @@ pub struct AppData {
     /// Indicates whether the compositor supports the
     /// `zwlr_layer_shell_v1` protocol.
     pub layer_shell_supported: bool,
+
+    /// Current values for iCustom0..3. Updated by IPC on the main thread.
+    pub custom_uniforms: [[f32; 4]; 4],
+
+    /// Active socket service (`None` if binding failed).
+    pub ipc_service: Option<gio::SocketService>,
+
+    /// Absolute path of the socket.
+    pub ipc_socket_path: Option<PathBuf>,
 }
 
 /// Per-window rendering state attached to each `GLArea`.
@@ -111,7 +120,11 @@ pub fn init_logging() -> Result<(), log::SetLoggerError> {
 /// Creates global `AppData`, installs signal handlers,
 /// and starts the GTK main loop.
 pub fn run(cli_config: CliConfig) -> glib::ExitCode {
-    let app = gtk::Application::builder().application_id(APP_ID).build();
+    let app = gtk::Application::builder()
+        .application_id(APP_ID)
+        .flags(gio::ApplicationFlags::NON_UNIQUE)
+        .build();
+    let custom_uniforms = cli_config.preset.seed_custom_uniforms();
 
     set_data!(
         app,
@@ -125,6 +138,9 @@ pub fn run(cli_config: CliConfig) -> glib::ExitCode {
             keyboard_controller: KeyboardController::new(app.clone()),
             screen_controller: ScreenController::default(),
             layer_shell_supported: false,
+            custom_uniforms,
+            ipc_service: None,
+            ipc_socket_path: None,
         }
     );
 
@@ -135,6 +151,7 @@ pub fn run(cli_config: CliConfig) -> glib::ExitCode {
     }
 
     app.connect_activate(activate);
+    app.connect_shutdown(shutdown);
     app.run_with_args(&[""])
 }
 
@@ -144,7 +161,13 @@ fn on_preset_change(app: &gtk::Application, preset_path: &Path) {
         Ok(new_preset) => {
             let app_data = get_data!(app, AppData, as_mut());
 
-            if new_preset != app_data.cli_config.preset {
+            // `[uniforms]` only seeds state at startup (not on reload).
+            let mut new_cmp = new_preset.clone();
+            let mut old_cmp = app_data.cli_config.preset.clone();
+            new_cmp.uniforms.clear();
+            old_cmp.uniforms.clear();
+
+            if new_cmp != old_cmp {
                 log::info!("Applying updated preset");
                 app_data.cli_config.preset = new_preset;
                 on_monitor_changed(app.clone());
@@ -194,6 +217,21 @@ fn activate(app: &gtk::Application) {
         on_monitor_changed(app.clone());
     } else {
         log::error!("No default GdkDisplay");
+    }
+
+    crate::ipc_server::setup_ipc(app);
+}
+
+/// GTK shutdown handler.
+///
+/// Unlink socket file if it exists and clean up resources.
+#[named]
+fn shutdown(app: &gtk::Application) {
+    log::debug!("{}", function_name!().white().bold());
+
+    let app_data = get_data!(app, AppData, as_mut());
+    if let Some(path) = app_data.ipc_socket_path.take() {
+        let _ = std::fs::remove_file(path);
     }
 }
 
@@ -941,6 +979,7 @@ fn on_resize(area: &gtk::GLArea, width: i32, height: i32) {
         viewport_size,
         area_size,
         &app_data.cli_config.preset,
+        &app_data.cli_config.ipc_name,
     );
     if let Err(err) = &renderer {
         log::error!("Failed to create renderer: {err}");
@@ -959,6 +998,7 @@ fn on_render(area: &gtk::GLArea, gl_context: &gdk::GLContext) -> glib::Propagati
 
     let area_data = get_data!(area, AreaData, as_ref());
     let app_data = get_data!(get_app_from_area(area), AppData, as_mut());
+    let custom_uniforms = app_data.custom_uniforms;
 
     log::trace!(
         "{} {}: frame_hw={}",
@@ -986,7 +1026,7 @@ fn on_render(area: &gtk::GLArea, gl_context: &gdk::GLContext) -> glib::Propagati
                 }
 
                 if let Some(renderer) = area_data.renderer.as_mut() {
-                    renderer.render(area_data.gl_offset, &input, frame_stats);
+                    renderer.render(area_data.gl_offset, &input, frame_stats, &custom_uniforms);
                 }
             }
 

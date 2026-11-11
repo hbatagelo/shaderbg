@@ -129,6 +129,9 @@ pub struct RenderContext<'a> {
 
     /// Frame timing statistics.
     pub frame_stats: &'a FrameStats,
+
+    /// Custom uniforms (`iCustom0..3`) for this frame.
+    pub custom_uniforms: &'a [[f32; 4]; 4],
 }
 
 pub struct Renderer {
@@ -199,6 +202,8 @@ impl Renderer {
         monitor_size: Size,
         // Loaded preset describing the rendering pipeline.
         preset: &Preset,
+        // IPC socket name.
+        ipc_name: &str,
     ) -> Result<Self, ShaderError> {
         #[cfg(debug_assertions)]
         setup_opengl_debugging();
@@ -375,6 +380,7 @@ impl Renderer {
                     *size,
                     inputs,
                     msaa_samples,
+                    ipc_name,
                 )?;
                 passes.push(pass);
             }
@@ -416,6 +422,7 @@ impl Renderer {
         resolution_offset: Offset,
         input_data: &InputData,
         frame_stats: &FrameStats,
+        custom_uniforms: &[[f32; 4]; 4],
     ) {
         log::trace!(
             "Frame {}: t={:.2} s, Δt {:.1} ms, {:.1} FPS",
@@ -440,6 +447,7 @@ impl Renderer {
             scaled_resolution,
             framebuffer_scale: self.framebuffer_scale,
             frame_stats,
+            custom_uniforms,
         };
 
         let scaled_resolution_offset = resolution_offset * self.framebuffer_scale;

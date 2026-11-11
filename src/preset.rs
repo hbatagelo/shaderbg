@@ -15,7 +15,7 @@
 use gtk::{gio, prelude::*};
 use serde::*;
 use std::{
-    collections::hash_map::DefaultHasher,
+    collections::{HashMap, hash_map::DefaultHasher},
     ffi::OsStr,
     fs,
     hash::{Hash, Hasher},
@@ -132,7 +132,7 @@ pub struct Input {
     pub vflip: bool,
 }
 
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Pass {
     /// Shader source code.
     #[serde(default, deserialize_with = "validators::fallback_to_default")]
@@ -151,7 +151,7 @@ pub struct Pass {
     pub input_3: Option<Input>,
 }
 
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Preset {
     /// Shader ID.
     #[serde(default, deserialize_with = "validators::fallback_to_default")]
@@ -243,6 +243,10 @@ pub struct Preset {
     /// "Image" render pass.
     #[serde(default = "defaults::image")]
     pub image: Pass,
+    /// Initial values for `iCustom0..3`.
+    /// Used to seed state at startup (ignored on hot-reload).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub uniforms: HashMap<String, [f32; 4]>,
 }
 
 impl Preset {
@@ -261,6 +265,17 @@ impl Preset {
     pub fn with_serde_defaults() -> Self {
         toml::from_str("").expect("Failed to create default preset")
     }
+
+    /// Extracts the initial `iCustom0..3` values, falling back to zeros.
+    pub fn seed_custom_uniforms(&self) -> [[f32; 4]; 4] {
+        let mut out = [[0.0f32; 4]; 4];
+        for (idx, slot) in out.iter_mut().enumerate() {
+            if let Some(value) = self.uniforms.get(&format!("iCustom{idx}")) {
+                *slot = *value;
+            }
+        }
+        out
+    }
 }
 
 /// Default values for preset fields.
@@ -277,7 +292,7 @@ pub mod defaults {
         1.0
     }
 
-    /// Default monitor selection ( `*` = all available monitors).
+    /// Default monitor selection (`*` = all available monitors).
     pub fn monitor_selection() -> Vec<String> {
         vec!["*".into()]
     }
